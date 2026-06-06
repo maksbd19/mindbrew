@@ -22,7 +22,7 @@ function ArtifactFrame({ children }: { children: React.ReactNode }) {
 }
 
 const REPORT_PROSE_CLASS =
-  "prose prose-invert max-w-none overflow-x-auto text-[14px] leading-relaxed prose-headings:tracking-tight prose-p:text-muted-light prose-li:text-muted-light prose-table:w-full prose-th:border prose-th:border-border-subtle prose-th:px-3 prose-th:py-2 prose-th:text-left prose-td:border prose-td:border-border-subtle prose-td:px-3 prose-td:py-2";
+  "prose prose-invert min-w-0 max-w-full text-[14px] leading-relaxed prose-headings:tracking-tight prose-p:break-words prose-p:text-muted-light prose-a:break-words prose-li:break-words prose-li:text-muted-light prose-code:break-words prose-pre:max-w-full prose-pre:overflow-x-auto prose-table:block prose-table:max-w-full prose-table:w-full prose-table:overflow-x-auto prose-th:border prose-th:border-border-subtle prose-th:px-3 prose-th:py-2 prose-th:text-left prose-td:border prose-td:border-border-subtle prose-td:px-3 prose-td:py-2";
 
 type FbaContext = {
   selectedPathway: { id: string; name: string } | null;
