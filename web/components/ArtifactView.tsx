@@ -2,6 +2,7 @@
 
 import ReactMarkdown from "react-markdown";
 import type { FbaResult, LiteraturePlan, PathwayCandidate } from "@/lib/bioLinks";
+import type { PathwayRunHistoryEntry } from "@/lib/pathwaySelection";
 import { formatStepLabel } from "@/lib/format";
 import ArtifactPanel from "./ArtifactPanel";
 import FbaPlanView from "./FbaPlanView";
@@ -17,9 +18,20 @@ function ArtifactFrame({ children }: { children: React.ReactNode }) {
 export default function ArtifactView({
   stepId,
   artifact,
+  pathwaySelection,
+  fbaContext,
 }: {
   stepId: string;
   artifact: Record<string, unknown> | null;
+  pathwaySelection?: {
+    selectedId: string | null;
+    onSelectionChange: (id: string | null) => void;
+  };
+  fbaContext?: {
+    selectedPathway: { id: string; name: string } | null;
+    priorRuns: PathwayRunHistoryEntry[];
+    resolvePathwayName: (pathwayId: string | undefined) => string;
+  };
 }) {
   const stepLabel = formatStepLabel(stepId);
 
@@ -60,6 +72,9 @@ export default function ArtifactView({
         <PathwayTable
           candidates={artifact.pathway_candidates as PathwayCandidate[]}
           organism={artifact.organism as string[] | undefined}
+          selectable={Boolean(pathwaySelection)}
+          selectedId={pathwaySelection?.selectedId ?? null}
+          onSelectionChange={pathwaySelection?.onSelectionChange}
         />
       </ArtifactFrame>
     );
@@ -100,6 +115,9 @@ export default function ArtifactView({
           }>) ?? []}
           skipped={artifact.skipped as string[] | undefined}
           gemProfile={artifact.gem_profile as Record<string, unknown> | null}
+          selectedPathway={fbaContext?.selectedPathway ?? null}
+          priorRuns={fbaContext?.priorRuns}
+          resolvePathwayName={fbaContext?.resolvePathwayName}
         />
       </ArtifactFrame>
     );

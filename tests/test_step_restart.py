@@ -13,6 +13,8 @@ from mindbrew_v2.graph import build_graph
 from mindbrew_v2.models import StepId
 from mindbrew_v2.phases.checkpoints import (
     prepare_step_restart_state,
+    paused_at_step_checkpoint,
+    restart_anchor_for_step,
     restore_prior_step_memory,
 )
 
@@ -160,3 +162,43 @@ async def test_revise_routing_restarts_cp1_with_ticket_memory():
     assert after.values["ticket"]["raw_brief"] == "wax ester yarrowia"
     assert after.values["brief"] is not None
     assert after.values["brief"]["organism"] == ["Yarrowia lipolytica"]
+
+
+def test_restart_mid_node_uses_anchor_not_goto():
+    """Restarting after a mid-node failure must not run goto + stale next concurrently."""
+    from langgraph.errors import InvalidUpdateError
+
+    graph = build_graph(checkpointer=MemorySaver())
+    config = {"configurable": {"thread_id": "mid-node-fail"}}
+    state = {
+        "ticket": {"id": "mid-node-fail", "raw_brief": "wax ester yarrowia"},
+        "brief": {"ticket_id": "mid-node-fail", "raw_brief": "wax", "organism": ["Yarrowia lipolytica"]},
+        "pathway_candidates": [{"id": "p1", "name": "Path A"}],
+        "approved_candidates": [],
+        "validation_mode": "literature",
+        "human_decisions": [{"checkpoint": "cp1_spec", "action": "proceed"}],
+        "revision_number": 0,
+        "max_revisions": 5,
+        "revision_notes": None,
+    }
+    # Simulate stale checkpoint memory: plain update_state leaves next on a revise route.
+    graph.update_state(config, state, as_node="biomni_search")
+    current = prepare_step_restart_state(dict(graph.get_state(config).values), StepId.CP2_PATHWAYS)
+    graph.update_state(config, current)
+    snap = graph.get_state(config)
+    assert snap.next != ("biomni_search",)
+    assert not paused_at_step_checkpoint(snap, StepId.CP2_PATHWAYS)
+
+    with pytest.raises(InvalidUpdateError):
+        for _ in graph.stream(Command(goto="biomni_search"), config):
+            pass
+
+    anchor = restart_anchor_for_step(StepId.CP2_PATHWAYS, current)
+    graph.update_state(config, current, as_node=anchor)
+    assert graph.get_state(config).next == ("biomni_search",)
+
+    for chunk in graph.stream(None, config):
+        if "__interrupt__" in chunk:
+            break
+
+    assert graph.get_state(config).next == ("cp2_pathway_review",)

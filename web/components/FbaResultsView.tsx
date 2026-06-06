@@ -11,14 +11,16 @@ function verdictTone(verdict: string): "success" | "warning" | "danger" | "neutr
   return "neutral";
 }
 
-export default function FbaResultsView({ results }: { results: FbaResult[] }) {
-  return (
-    <ArtifactPanel
-      title="FBA validation results"
-      subtitle={`${results.length} pathway${results.length === 1 ? "" : "s"} scored`}
-    >
-      <div className="space-y-4">
-        {results.map((r) => (
+export default function FbaResultsView({
+  results,
+  embedded = false,
+}: {
+  results: FbaResult[];
+  embedded?: boolean;
+}) {
+  const body = (
+    <div className="space-y-4">
+      {results.map((r) => (
           <div key={r.pathway_id} className="rounded-lg border border-border-subtle bg-surface-raised/50 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <h3 className="font-mono text-[14px] font-semibold text-accent">{r.pathway_id}</h3>
@@ -102,6 +104,23 @@ export default function FbaResultsView({ results }: { results: FbaResult[] }) {
           </div>
         ))}
       </div>
+  );
+
+  if (embedded) {
+    return (
+      <div>
+        <p className="mb-3 text-[13px] font-semibold text-foreground">FBA validation results</p>
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <ArtifactPanel
+      title="FBA validation results"
+      subtitle={`${results.length} pathway${results.length === 1 ? "" : "s"} scored`}
+    >
+      {body}
     </ArtifactPanel>
   );
 }

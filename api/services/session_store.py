@@ -100,6 +100,10 @@ def upsert_step(
     if existing:
         existing.status = status
         if artifact is not None:
+            if existing.artifact:
+                history = existing.artifact.get("_pathway_run_history")
+                if history and "_pathway_run_history" not in artifact:
+                    artifact = {**artifact, "_pathway_run_history": history}
             existing.artifact = artifact
         if revision_number is not None:
             existing.revision_number = revision_number

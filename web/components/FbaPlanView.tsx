@@ -1,6 +1,8 @@
 import type { Citation } from "@/lib/bioLinks";
+import type { PathwayChoice, PathwayRunHistoryEntry } from "@/lib/pathwaySelection";
 import ArtifactPanel, { ArtifactSection } from "./ArtifactPanel";
 import CitationBadge from "./CitationBadge";
+import PriorPathwayRuns from "./PriorPathwayRuns";
 
 type CandidateReaction = {
   id: string;
@@ -31,24 +33,15 @@ function formatStoichiometry(stoich: Record<string, number>): string {
   return parts.join(" ");
 }
 
-export default function FbaPlanView({
+function PlanPayloads({
   payloads,
   skipped,
-  gemProfile,
 }: {
   payloads: ScorePayload[];
   skipped?: string[];
-  gemProfile?: Record<string, unknown> | null;
 }) {
   return (
-    <ArtifactPanel
-      title="FBA formalization plan"
-      subtitle={
-        gemProfile
-          ? `Model: ${String(gemProfile.model_ref || gemProfile.gem_id || "")} · ${String(gemProfile.scenario || "")}`
-          : `${payloads.length} pathway payload${payloads.length === 1 ? "" : "s"}`
-      }
-    >
+    <>
       <div className="space-y-4">
         {payloads.map((p) => (
           <div key={p.pathway_id} className="rounded-lg border border-border-subtle bg-surface-raised/50 p-4">
@@ -134,6 +127,55 @@ export default function FbaPlanView({
             ))}
           </ul>
         </div>
+      )}
+    </>
+  );
+}
+
+export default function FbaPlanView({
+  payloads,
+  skipped,
+  gemProfile,
+  selectedPathway,
+  priorRuns,
+  resolvePathwayName,
+  embedded = false,
+}: {
+  payloads: ScorePayload[];
+  skipped?: string[];
+  gemProfile?: Record<string, unknown> | null;
+  selectedPathway?: PathwayChoice | null;
+  priorRuns?: PathwayRunHistoryEntry[];
+  resolvePathwayName?: (pathwayId: string | undefined) => string;
+  embedded?: boolean;
+}) {
+  const body = <PlanPayloads payloads={payloads} skipped={skipped} />;
+
+  if (embedded) {
+    return body;
+  }
+
+  return (
+    <ArtifactPanel
+      title="FBA formalization plan"
+      subtitle={
+        gemProfile
+          ? `Model: ${String(gemProfile.model_ref || gemProfile.gem_id || "")} · ${String(gemProfile.scenario || "")}`
+          : `${payloads.length} pathway payload${payloads.length === 1 ? "" : "s"}`
+      }
+    >
+      {selectedPathway && (
+        <div className="mb-5 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted">Selected pathway</p>
+          <p className="mt-1 text-[15px] font-semibold text-foreground">{selectedPathway.name}</p>
+          <p className="mt-0.5 font-mono text-[11px] text-muted">{selectedPathway.id}</p>
+        </div>
+      )}
+
+      {body}
+
+      {priorRuns && priorRuns.length > 0 && resolvePathwayName && (
+        <PriorPathwayRuns entries={priorRuns} resolvePathwayName={resolvePathwayName} />
       )}
     </ArtifactPanel>
   );

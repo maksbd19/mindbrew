@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { Session, StreamEvent } from "@/lib/api";
@@ -21,6 +21,7 @@ import StreamLog, { activePhaseFromEvents } from "@/components/StreamLog";
 import SessionContextPanel from "@/components/SessionContextPanel";
 import EditableSessionTitle from "@/components/EditableSessionTitle";
 import ArtifactView from "@/components/ArtifactView";
+import PathwayRevisitPanel from "@/components/PathwayRevisitPanel";
 import StepDecisionActions from "@/components/StepDecisionActions";
 import {
   actionBar,
@@ -32,6 +33,12 @@ import {
   statusChipClass,
 } from "@/lib/ui";
 import { formatStatusLabel } from "@/lib/format";
+import {
+  committedPathwayId,
+  pathwayCandidatesFromStep,
+  pathwayRunHistory,
+  resolvePathwayChoice,
+} from "@/lib/pathwaySelection";
 
 /** Recovery markers — errors before these are stale and should not show in the banner. */
 const ERROR_RECOVERY_TYPES = new Set([
@@ -98,7 +105,29 @@ export default function SessionDetailPage() {
   const [restarting, setRestarting] = useState(false);
   const [pendingAction, setPendingAction] = useState<"proceed" | "revise" | "restart" | null>(null);
   const [titleSuggesting, setTitleSuggesting] = useState(false);
+  const [selectedPathwayId, setSelectedPathwayId] = useState<string | null>(null);
   const lastSeqRef = useRef(0);
+
+  const stepRecord = session?.steps.find((s) => s.step_id === viewStep);
+  const artifact = (stepRecord?.artifact as Record<string, unknown> | null) ?? null;
+  const pathwayCandidates =
+    artifact && "pathway_candidates" in artifact
+      ? ((artifact.pathway_candidates as { id: string; name: string }[]) || [])
+      : [];
+  const pathwayCandidateKey = pathwayCandidates.map((p) => p.id).join(",");
+  const cp2Step = session?.steps.find((s) => s.step_id === "cp2_pathways");
+  const cp2Candidates = useMemo(() => pathwayCandidatesFromStep(cp2Step), [cp2Step]);
+  const committedPathwayIdValue = useMemo(
+    () => committedPathwayId(cp2Step?.human_decisions),
+    [cp2Step?.human_decisions]
+  );
+  const priorPathwayRuns = useMemo(() => pathwayRunHistory(cp2Step), [cp2Step]);
+
+  const resolvePathwayName = useCallback(
+    (pathwayId: string | undefined) =>
+      resolvePathwayChoice(cp2Candidates, pathwayId)?.name ?? pathwayId ?? "Unknown pathway",
+    [cp2Candidates]
+  );
 
   const applySession = useCallback((s: Session, opts?: { followStep?: boolean }) => {
     setSession(s);
@@ -207,14 +236,19 @@ export default function SessionDetailPage() {
     return () => window.clearInterval(id);
   }, [session?.status, session?.agent_active, deciding, restarting, refresh, syncEvents]);
 
+  useEffect(() => {
+    if (viewStep !== "cp2_pathways") {
+      setSelectedPathwayId(null);
+      return;
+    }
+    setSelectedPathwayId(committedPathwayIdValue);
+  }, [viewStep, committedPathwayIdValue, pathwayCandidateKey]);
+
   const completedSteps = new Set(
     (session?.steps || [])
       .filter((s) => s.status === "completed" || s.status === "awaiting_user")
       .map((s) => s.step_id)
   );
-
-  const stepRecord = session?.steps.find((s) => s.step_id === viewStep);
-  const artifact = (stepRecord?.artifact as Record<string, unknown> | null) ?? null;
 
   const agentActive = Boolean(session?.agent_active) || session?.status === "running";
   const showStop = agentActive;
@@ -364,6 +398,43 @@ export default function SessionDetailPage() {
     }
   }
 
+  async function handleRestartPathwayStep() {
+    setActionError("");
+    setRestarting(true);
+    setPendingAction("restart");
+    try {
+      const started = await restartSessionStep(sessionId, "cp2_pathways");
+      applySession(started, { followStep: true });
+      setEvents((prev) =>
+        mergeEvents(prev, [{ type: "step_restart_requested", step_id: "cp2_pathways" }])
+      );
+
+      for (let i = 0; i < 180; i++) {
+        await syncEvents();
+        const s = await refresh();
+        if (
+          s.status === "awaiting_user" ||
+          s.status === "completed" ||
+          s.status === "failed" ||
+          s.status === "interrupted"
+        ) {
+          break;
+        }
+        if (s.status === "running" && !s.agent_active) {
+          setActionError("Agent stopped before finishing this step. Check the agent log above or use Restart step.");
+          break;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      }
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+      await refresh();
+    } finally {
+      setRestarting(false);
+      setPendingAction(null);
+    }
+  }
+
   async function handleTitleSave(title: string) {
     setActionError("");
     try {
@@ -375,24 +446,31 @@ export default function SessionDetailPage() {
     }
   }
 
-  const pathwayIds =
-    artifact && "pathway_candidates" in artifact
-      ? ((artifact.pathway_candidates as { id: string; name: string }[]) || []).map((p) => ({
-          id: p.id,
-          name: p.name,
-        }))
-      : [];
-
   const proceedBlocked = proceedBlockReason(viewStep, artifact);
   const agentStatus =
     artifact?.brief && typeof artifact.brief === "object"
       ? ((artifact.brief as { gatekeeper_verdict?: string }).gatekeeper_verdict ?? null)
       : null;
+  const selectedPathway =
+    pathwayCandidates.find((p) => p.id === selectedPathwayId) ??
+    resolvePathwayChoice(cp2Candidates, selectedPathwayId);
+  const committedPathway = resolvePathwayChoice(cp2Candidates, committedPathwayIdValue);
+  const pathwaySelectionEnabled =
+    viewStep === "cp2_pathways" &&
+    pathwayCandidates.length > 0 &&
+    !deciding &&
+    !restarting &&
+    !showStop;
   const showDecisionPanel =
     session?.status === "awaiting_user" &&
     session.current_step === viewStep &&
     !deciding &&
     !restarting;
+  const showPathwayRevisitPanel =
+    pathwaySelectionEnabled && !showDecisionPanel && viewStep === "cp2_pathways";
+  const pathwaySelectionChanged =
+    Boolean(selectedPathwayId) && selectedPathwayId !== committedPathwayIdValue;
+  const fbaSelectedPathway = resolvePathwayChoice(cp2Candidates, committedPathwayIdValue);
   const showHeaderRestart = showRestartStep && !showStop && !showDecisionPanel;
   const workingMessage =
     pendingAction === "revise"
@@ -497,12 +575,39 @@ export default function SessionDetailPage() {
               </div>
             )}
 
-            <ArtifactView stepId={viewStep} artifact={artifact} />
+            <ArtifactView
+              stepId={viewStep}
+              artifact={artifact}
+              pathwaySelection={
+                pathwaySelectionEnabled
+                  ? { selectedId: selectedPathwayId, onSelectionChange: setSelectedPathwayId }
+                  : undefined
+              }
+              fbaContext={
+                viewStep === "cp3_fba_plan"
+                  ? {
+                      selectedPathway: fbaSelectedPathway,
+                      priorRuns: priorPathwayRuns,
+                      resolvePathwayName,
+                    }
+                  : undefined
+              }
+            />
+
+            {showPathwayRevisitPanel && (
+              <PathwayRevisitPanel
+                selectedPathwayName={selectedPathway?.name ?? null}
+                committedPathwayName={committedPathway?.name ?? null}
+                selectionChanged={pathwaySelectionChanged}
+                busy={restarting}
+                onRestart={handleRestartPathwayStep}
+              />
+            )}
 
             {showDecisionPanel && (
               <StepDecisionActions
                 showPathwaySelect={viewStep === "cp2_pathways"}
-                pathwayIds={pathwayIds}
+                selectedPathway={selectedPathway}
                 agentStatus={agentStatus}
                 proceedDisabled={Boolean(proceedBlocked)}
                 proceedDisabledReason={proceedBlocked}

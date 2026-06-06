@@ -24,7 +24,9 @@ from mindbrew_v2.phases.checkpoints import (
     downstream_steps,
     paused_at_step_checkpoint,
     prepare_step_restart_state,
+    restart_anchor_for_step,
     restore_prior_step_memory,
+    step_pipeline,
     STEP_TO_CHECKPOINT,
     work_node_for_step,
     STEP_WORK_NODE,
@@ -490,7 +492,16 @@ def validate_step_restart(session_id: str, step_id: str, db) -> str | None:
     if not row:
         return "Session not found"
     if row.current_step != step_id:
-        return f"Can only restart the active step '{row.current_step}', not '{step_id}'."
+        if row.status not in ("awaiting_user", "failed", "interrupted"):
+            return f"Can only restart the active step '{row.current_step}', not '{step_id}'."
+        pipeline = step_pipeline({"validation_mode": row.validation_mode})
+        try:
+            target_idx = list(pipeline).index(sid)
+            current_idx = list(pipeline).index(StepId(row.current_step))
+        except ValueError:
+            return f"Can only restart the active step '{row.current_step}', not '{step_id}'."
+        if target_idx >= current_idx:
+            return f"Can only restart the active step '{row.current_step}', not '{step_id}'."
     if row.status not in ("awaiting_user", "failed", "interrupted"):
         return f"Cannot restart step while session status is '{row.status}'."
     if is_session_active(session_id):
@@ -512,6 +523,69 @@ def _load_restart_state(session_id: str, step_id: StepId, raw_brief: str, db) ->
     base = dict(snapshot.values) if snapshot.values else _initial_state(session_id, raw_brief)
     state = prepare_step_restart_state(base, step_id)
     return restore_prior_step_memory(state, step_id, row.steps or [])
+
+
+def _archive_pathway_run_if_needed(db, session_id: str, step_id: StepId, current: dict) -> None:
+    """Persist downstream FBA artifacts before restarting pathway selection."""
+    from sqlalchemy import select
+
+    from api.db.models import StepRow
+
+    if step_id != StepId.CP2_PATHWAYS:
+        return
+
+    cp3 = db.scalars(
+        select(StepRow).where(
+            StepRow.session_id == session_id,
+            StepRow.step_id == StepId.CP3_FBA_PLAN.value,
+        )
+    ).first()
+    if not cp3 or not cp3.artifact:
+        return
+    score_payloads = cp3.artifact.get("score_payloads") or []
+    if not score_payloads:
+        return
+
+    cp4 = db.scalars(
+        select(StepRow).where(
+            StepRow.session_id == session_id,
+            StepRow.step_id == StepId.CP4_FBA_RESULTS.value,
+        )
+    ).first()
+    cp2 = db.scalars(
+        select(StepRow).where(
+            StepRow.session_id == session_id,
+            StepRow.step_id == StepId.CP2_PATHWAYS.value,
+        )
+    ).first()
+
+    primary = current.get("primary_pathway_id")
+    if not primary and score_payloads:
+        primary = score_payloads[0].get("pathway_id")
+
+    entry = {
+        "pathway_id": primary,
+        "revision_number": current.get("revision_number", 0),
+        "cp3_fba_plan": cp3.artifact,
+    }
+    if cp4 and cp4.artifact:
+        entry["cp4_fba_results"] = cp4.artifact
+
+    cp2_artifact = dict(cp2.artifact if cp2 and cp2.artifact else {})
+    history = list(cp2_artifact.get("_pathway_run_history") or [])
+    if history:
+        last = history[-1]
+        if last.get("pathway_id") == entry["pathway_id"] and last.get("revision_number") == entry["revision_number"]:
+            return
+    history.append(entry)
+    cp2_artifact["_pathway_run_history"] = history
+    upsert_step(
+        db,
+        session_id,
+        StepId.CP2_PATHWAYS.value,
+        cp2.status if cp2 else "completed",
+        artifact=cp2_artifact,
+    )
 
 
 async def restart_session_step(session_id: str, step_id: str) -> AsyncIterator[dict]:
@@ -547,8 +621,7 @@ async def restart_session_step(session_id: str, step_id: str) -> AsyncIterator[d
         db.close()
         return
 
-    work_node = work_node_for_step(sid)
-    graph.update_state(config, current)
+    _archive_pathway_run_if_needed(db, session_id, sid, current)
 
     snapshot = graph.get_state(config)
     if snapshot.values and paused_at_step_checkpoint(snapshot, sid):
@@ -561,7 +634,14 @@ async def restart_session_step(session_id: str, step_id: str) -> AsyncIterator[d
         graph.update_state(config, routed)
         graph_input: Any = Command(resume=True)
     else:
-        graph_input = Command(goto=work_node)
+        # Anchor graph position with as_node so a stale next pointer does not run
+        # alongside Command(goto=...), which causes concurrent __root__ writes.
+        anchor = restart_anchor_for_step(sid, current)
+        if anchor:
+            graph.update_state(config, current, as_node=anchor)
+        else:
+            graph.update_state(config, current)
+        graph_input = None
 
     for downstream in downstream_steps(current, sid):
         upsert_step(db, session_id, downstream.value, "pending", artifact=None)

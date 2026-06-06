@@ -174,6 +174,28 @@ def work_node_for_step(step_id: StepId) -> str:
     return node
 
 
+# Review node whose outgoing edge targets the work node — used to reposition the graph
+# before re-running a step that failed mid-node (not paused at its checkpoint).
+_STEP_RESTART_ANCHOR: dict[StepId, str | None] = {
+    StepId.CP1_SPEC: None,
+    StepId.CP2_PATHWAYS: "cp1_spec_review",
+    StepId.CP3_FBA_PLAN: "cp2_pathway_review",
+    StepId.CP3B_LITERATURE_PLAN: "cp2_pathway_review",
+    StepId.CP4_FBA_RESULTS: "cp3_fba_plan_review",
+}
+
+
+def restart_anchor_for_step(step_id: StepId, state: dict) -> str | None:
+    """Return the review node to anchor on when restarting outside a checkpoint pause."""
+    if step_id == StepId.CP5_REPORT:
+        return (
+            "cp4_fba_review"
+            if state.get("validation_mode") == "fba"
+            else "cp3b_lit_plan_review"
+        )
+    return _STEP_RESTART_ANCHOR.get(step_id)
+
+
 def review_node_for_step(step_id: StepId) -> str:
     node = STEP_REVIEW_NODE.get(step_id)
     if not node:
