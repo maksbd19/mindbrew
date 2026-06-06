@@ -50,6 +50,33 @@ def test_build_calculation_steps_from_score_output():
     assert any(s.title == "Assess calibration confidence" for s in steps)
 
 
+def test_build_calculation_steps_handles_fba_tool_exchange_format():
+    raw = {
+        "status": "optimal",
+        "objective_used": "product",
+        "simulation_context": {
+            "exchange_constraints": {
+                "EX_o2_e": [-1000.0, 0.0],
+                "EX_nh4_e": [-1.0, 0.0],
+            },
+            "exchange_constraints_applied": {
+                "exchange_bounds_set": ["EX_o2_e", "EX_nh4_e"],
+                "exchange_not_found": [],
+            },
+        },
+        "calibration": {},
+        "carbon_audit": {},
+        "bottlenecks": [],
+        "edits_applied": {},
+    }
+
+    steps = build_calculation_steps(raw)
+    exchange_step = next(s for s in steps if s.title == "Apply exchange constraints")
+
+    assert "EX_o2_e: [-1000, 0]" in exchange_step.detail
+    assert "EX_nh4_e: [-1, 0]" in exchange_step.detail
+
+
 def test_parse_fba_result_includes_calculation_steps():
     result = _parse_fba_result(
         "P1",

@@ -397,6 +397,266 @@ def _build_validation_scaffold(
     return "\n".join(lines)
 
 
+def _markdown_table(headers: list[str], rows: list[list[str]]) -> str:
+    if not rows:
+        return ""
+    header_line = "| " + " | ".join(headers) + " |"
+    separator = "| " + " | ".join("---" for _ in headers) + " |"
+    body_lines = ["| " + " | ".join(row) + " |" for row in rows]
+    return "\n".join([header_line, separator, *body_lines])
+
+
+def _fba_result_for_pathway(
+    fba_results: list[FBAValidationResult] | None,
+    pathway_id: str,
+) -> FBAValidationResult | None:
+    if not fba_results:
+        return None
+    return next((r for r in fba_results if r.pathway_id == pathway_id), None)
+
+
+def _recommendation_text(
+    primary: PathwayCandidate | None,
+    primary_fba: FBAValidationResult | None,
+) -> tuple[str, str]:
+    if primary is None:
+        return (
+            "No primary pathway selected — review pathway candidates before engaging a CRO.",
+            "Select a primary pathway based on confidence and validation results.",
+        )
+
+    pathway_label = primary.name
+    verdict = (primary_fba.verdict or "").lower() if primary_fba else ""
+    confidence = primary.confidence
+
+    if verdict == "fail" or confidence == "inferred":
+        action = (
+            f"Proceed with caution — **{pathway_label}** has unresolved risks; "
+            "consider alternative pathways before CRO engagement."
+        )
+    elif verdict == "pass" or confidence == "strong":
+        action = f"Proceed with **{pathway_label}** for CRO feasibility work."
+    else:
+        action = (
+            f"Proceed with **{pathway_label}** for exploratory CRO feasibility work, "
+            "with validation milestones before scale-up."
+        )
+
+    if primary.confidence_rationale:
+        rationale = primary.confidence_rationale
+    elif primary.confidence_factors:
+        rationale = "; ".join(primary.confidence_factors)
+    else:
+        rationale = f"Pathway confidence rated {confidence}."
+
+    return action, rationale
+
+
+def _collect_executive_risks(
+    fba_results: list[FBAValidationResult] | None,
+    literature_plan: LiteraturePathwayPlan | None,
+    *,
+    limit: int = 5,
+) -> list[str]:
+    seen: set[str] = set()
+    risks: list[str] = []
+
+    def add(item: str) -> None:
+        normalized = item.strip()
+        if not normalized or normalized in seen:
+            return
+        seen.add(normalized)
+        risks.append(normalized)
+
+    if literature_plan:
+        for risk in literature_plan.known_risks:
+            add(risk)
+            if len(risks) >= limit:
+                return risks
+
+    if fba_results:
+        for result in fba_results:
+            for reason in result.failure_reasons:
+                add(reason)
+                if len(risks) >= limit:
+                    return risks
+            for bottleneck in result.bottlenecks:
+                add(f"{bottleneck.reaction}: {bottleneck.explanation}")
+                if len(risks) >= limit:
+                    return risks
+
+    return risks
+
+
+def _collect_executive_next_steps(
+    literature_plan: LiteraturePathwayPlan | None,
+    validation_mode: ValidationMode,
+    *,
+    limit: int = 5,
+) -> list[str]:
+    steps: list[str] = []
+    if literature_plan:
+        steps.extend(literature_plan.next_steps)
+        if len(steps) < limit:
+            for gap in literature_plan.gaps:
+                steps.append(f"Address gap: {gap}")
+                if len(steps) >= limit:
+                    break
+
+    if not steps:
+        if validation_mode == ValidationMode.FBA:
+            steps.append("Confirm FBA-predicted flux with shake-flask fermentation and product quantification.")
+        else:
+            steps.append("Validate literature pathway feasibility with targeted wet-lab experiments.")
+
+    return steps[:limit]
+
+
+def _build_executive_summary_markdown(
+    brief: ResearchBrief,
+    validation_mode: ValidationMode,
+    candidates: list[PathwayCandidate],
+    primary: PathwayCandidate | None,
+    primary_pathway_id: str | None,
+    fba_results: list[FBAValidationResult] | None,
+    literature_plan: LiteraturePathwayPlan | None,
+    gem_profile: dict | None = None,
+) -> str:
+    from mindbrew_v2.paths import display_path
+
+    candidate_count = len(candidates)
+    target_label = _compound_inline(brief.target)
+    feedstock_label = _compound_inline(brief.feedstock)
+    organism_label = ", ".join(brief.organism) if brief.organism else ""
+
+    if primary:
+        intro = (
+            f"This proposal evaluates {candidate_count} pathway candidate"
+            f"{'s' if candidate_count != 1 else ''} for "
+            f"{brief.target_function or 'target'} production of {target_label}"
+        )
+        if feedstock_label and feedstock_label != "—":
+            intro += f" from {feedstock_label}"
+        if organism_label:
+            intro += f" in {organism_label}"
+        intro += f". Primary recommendation: **{primary.name}**."
+    elif candidate_count:
+        intro = (
+            f"This proposal evaluates {candidate_count} pathway candidate"
+            f"{'s' if candidate_count != 1 else ''} for "
+            f"{brief.target_function or 'target'} production of {target_label}."
+        )
+    else:
+        intro = (
+            f"This proposal outlines a CRO-ready production strategy for "
+            f"{brief.target_function or 'target'} production of {target_label}."
+        )
+
+    primary_fba = (
+        _fba_result_for_pathway(fba_results, primary.id)
+        if primary and fba_results
+        else None
+    )
+
+    glance_rows: list[tuple[str, str]] = []
+    if target_label and target_label != "—":
+        glance_rows.append(("Target molecule", target_label))
+    if feedstock_label and feedstock_label != "—":
+        glance_rows.append(("Feedstock", feedstock_label))
+    if organism_label:
+        glance_rows.append(("Chassis organism", organism_label))
+    if brief.target_function:
+        glance_rows.append(("Application", brief.target_function))
+    glance_rows.append(("Validation mode", validation_mode.value))
+    if primary:
+        glance_rows.append(("Primary pathway", f"{primary.name} ({primary.id})"))
+        glance_rows.append(("Pathway confidence", primary.confidence))
+        if primary.reported_titer:
+            glance_rows.append(("Literature benchmark", primary.reported_titer))
+    if primary_fba and primary_fba.verdict:
+        glance_rows.append(("FBA verdict", primary_fba.verdict))
+    if primary_fba and primary_fba.yield_corrected_mol_per_mol_substrate is not None:
+        glance_rows.append(
+            (
+                "Predicted yield",
+                f"{primary_fba.yield_corrected_mol_per_mol_substrate} mol/mol substrate",
+            )
+        )
+    if gem_profile:
+        gem_label = gem_profile.get("gem_id") or display_path(gem_profile.get("model_ref"))
+        if gem_label:
+            glance_rows.append(("GEM model", str(gem_label)))
+
+    sections = [
+        "## Executive Summary",
+        "",
+        intro,
+        "",
+        "### Proposal at a Glance",
+        "",
+        _markdown_table(
+            ["Item", "Value"],
+            [[label, value] for label, value in glance_rows],
+        ),
+    ]
+
+    if len(candidates) >= 2:
+        comparison_rows: list[list[str]] = []
+        for candidate in candidates:
+            fba = _fba_result_for_pathway(fba_results, candidate.id)
+            name = candidate.name
+            if candidate.id == primary_pathway_id:
+                name = f"{name}*"
+            yield_val = "—"
+            if fba and fba.yield_corrected_mol_per_mol_substrate is not None:
+                yield_val = str(fba.yield_corrected_mol_per_mol_substrate)
+            comparison_rows.append(
+                [
+                    name,
+                    candidate.confidence,
+                    candidate.reported_titer or "—",
+                    fba.verdict if fba and fba.verdict else "—",
+                    yield_val,
+                ]
+            )
+        sections.extend(
+            [
+                "",
+                "### Pathway Comparison",
+                "",
+                _markdown_table(
+                    ["Pathway", "Confidence", "Lit. titer", "FBA verdict", "Yield (mol/mol)"],
+                    comparison_rows,
+                ),
+                "",
+                "_\\* Primary pathway_",
+            ]
+        )
+
+    recommendation, rationale = _recommendation_text(primary, primary_fba)
+    sections.extend(
+        [
+            "",
+            "### Recommendation",
+            f"- **Primary recommendation:** {recommendation}",
+            f"- **Rationale:** {rationale}",
+        ]
+    )
+
+    risks = _collect_executive_risks(fba_results, literature_plan)
+    if risks:
+        sections.extend(["", "### Key Risks"])
+        sections.extend(f"- {risk}" for risk in risks)
+
+    next_steps = _collect_executive_next_steps(literature_plan, validation_mode)
+    if next_steps:
+        sections.extend(["", "### Recommended Next Steps"])
+        sections.extend(f"- {step}" for step in next_steps)
+
+    sections.extend(["", "---", ""])
+    return "\n".join(sections)
+
+
 def _report_title(session_title: str | None) -> str:
     if session_title and session_title.strip():
         return session_title.strip()
@@ -577,9 +837,20 @@ def generate_report(
     validation_summary = format_citation_validation_summary(all_citations)
 
     title = _report_title(session_title)
+    executive_summary_md = _build_executive_summary_markdown(
+        brief,
+        validation_mode,
+        candidates,
+        primary,
+        primary_pathway_id,
+        fba_results,
+        literature_plan,
+        gem_profile,
+    )
 
     markdown = f"""# {title}
 
+{executive_summary_md}
 ## 1. Project Summary
 {extracted.project_summary}
 

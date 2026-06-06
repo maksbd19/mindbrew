@@ -1,5 +1,6 @@
 """Human checkpoint helpers."""
 
+import re
 from typing import Any
 
 from mindbrew_v2.models import CheckpointId, HumanDecision, StepId
@@ -249,10 +250,14 @@ def _checkpoint_artifact_detail(checkpoint: CheckpointId, artifact: dict) -> str
     if checkpoint == "cp5_report":
         report = artifact.get("report") or {}
         markdown = report.get("markdown") or ""
-        section_count = markdown.count("\n## ")
+        section_count = len(re.findall(r"^## \d+\.", markdown, re.MULTILINE))
         return _join_summary_parts([
             "CRO report ready" if markdown else "",
-            f"{section_count} sections" if section_count else "",
+            (
+                f"Executive summary + {section_count} proposal sections"
+                if section_count
+                else ""
+            ),
         ])
 
     return ""

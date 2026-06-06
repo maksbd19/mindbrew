@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { FbaResult, LiteraturePlan, PathwayCandidate } from "@/lib/bioLinks";
 import type { PathwayRunHistoryEntry } from "@/lib/pathwaySelection";
 import { stepArtifactHasContent } from "@/lib/stepArtifact";
@@ -19,6 +20,9 @@ import StepRunningPanel from "./StepRunningPanel";
 function ArtifactFrame({ children }: { children: React.ReactNode }) {
   return <div className="min-w-0 max-w-full">{children}</div>;
 }
+
+const REPORT_PROSE_CLASS =
+  "prose prose-invert max-w-none overflow-x-auto text-[14px] leading-relaxed prose-headings:tracking-tight prose-p:text-muted-light prose-li:text-muted-light prose-table:w-full prose-th:border prose-th:border-border-subtle prose-th:px-3 prose-th:py-2 prose-th:text-left prose-td:border prose-td:border-border-subtle prose-td:px-3 prose-td:py-2";
 
 type FbaContext = {
   selectedPathway: { id: string; name: string } | null;
@@ -67,8 +71,10 @@ function renderStepArtifact({
     const report = artifact.report as { markdown?: string };
     if (embedded) {
       return (
-        <div className="prose prose-invert max-w-none overflow-x-auto text-[14px] leading-relaxed prose-headings:tracking-tight prose-p:text-muted-light prose-li:text-muted-light">
-          <ReactMarkdown>{report.markdown || JSON.stringify(report, null, 2)}</ReactMarkdown>
+        <div className={REPORT_PROSE_CLASS}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {report.markdown || JSON.stringify(report, null, 2)}
+          </ReactMarkdown>
         </div>
       );
     }
@@ -80,8 +86,10 @@ function renderStepArtifact({
         noPadding
         bodyClassName="p-0"
       >
-        <div className="prose prose-invert max-w-none overflow-x-auto px-5 py-4 text-[14px] leading-relaxed prose-headings:tracking-tight prose-p:text-muted-light prose-li:text-muted-light">
-          <ReactMarkdown>{report.markdown || JSON.stringify(report, null, 2)}</ReactMarkdown>
+        <div className={`${REPORT_PROSE_CLASS} px-5 py-4`}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {report.markdown || JSON.stringify(report, null, 2)}
+          </ReactMarkdown>
         </div>
       </ArtifactPanel>
     );

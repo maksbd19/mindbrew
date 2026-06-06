@@ -136,10 +136,10 @@ export function checkpointArtifactSummary(
     case "cp5_report": {
       const report = artifact.report as { markdown?: string } | undefined;
       if (!report?.markdown) return null;
-      const sectionCount = (report.markdown.match(/^## /gm) || []).length;
+      const sectionCount = (report.markdown.match(/^## \d+\./gm) || []).length;
       return joinParts([
         "CRO report ready",
-        sectionCount > 0 ? `${sectionCount} sections` : null,
+        sectionCount > 0 ? `Executive summary + ${sectionCount} proposal sections` : null,
       ]);
     }
     default:

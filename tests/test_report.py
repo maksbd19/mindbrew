@@ -12,6 +12,7 @@ from mindbrew_v2.models import (
     ValidationMode,
 )
 from mindbrew_v2.phases.report import (
+    _build_executive_summary_markdown,
     _build_feedstock_scaffold,
     _build_fba_data_markdown,
     _build_fba_plan_scaffold,
@@ -23,6 +24,8 @@ from mindbrew_v2.phases.report import (
     _build_risk_scaffold,
     _build_target_scaffold,
     _build_validation_scaffold,
+    _markdown_table,
+    _recommendation_text,
     _report_title,
 )
 
@@ -212,3 +215,143 @@ def test_build_validation_scaffold():
     assert "literature" in md
     assert "Wet-lab feasibility" in md
     assert "No flux validation" in md
+
+
+def test_markdown_table_formats_rows():
+    table = _markdown_table(["A", "B"], [["1", "2"], ["3", "4"]])
+    assert table.startswith("| A | B |")
+    assert "| --- | --- |" in table
+    assert "| 1 | 2 |" in table
+
+
+def test_build_executive_summary_includes_at_a_glance():
+    brief = ResearchBrief(
+        ticket_id="t1",
+        raw_brief="raw",
+        target_function="Silicone replacement",
+        organism=["Yarrowia lipolytica"],
+        feedstock=CompoundSpec(name="oleic acid", compound_class="fatty acid"),
+        target=CompoundSpec(name="wax ester", compound_class="lipid"),
+    )
+    primary = PathwayCandidate(
+        id="pw1",
+        name="FAR + WS",
+        confidence="strong",
+        reported_titer="7.58 g/L",
+        confidence_rationale="Direct literature precedent",
+    )
+    fba = [
+        FBAValidationResult(
+            pathway_id="pw1",
+            status="optimal",
+            yield_corrected_mol_per_mol_substrate=0.8,
+            verdict="pass",
+            rank=1,
+        ),
+    ]
+    md = _build_executive_summary_markdown(
+        brief,
+        ValidationMode.FBA,
+        [primary],
+        primary,
+        "pw1",
+        fba,
+        None,
+        gem_profile={"gem_id": "iYLI647"},
+    )
+    assert "## Executive Summary" in md
+    assert "### Proposal at a Glance" in md
+    assert "wax ester / lipid" in md
+    assert "oleic acid / fatty acid" in md
+    assert "Yarrowia lipolytica" in md
+    assert "Silicone replacement" in md
+    assert "FAR + WS (pw1)" in md
+    assert "strong" in md
+    assert "pass" in md
+    assert "0.8 mol/mol substrate" in md
+    assert "7.58 g/L" in md
+    assert "iYLI647" in md
+    assert "---" in md
+
+
+def test_build_executive_summary_pathway_comparison():
+    candidates = [
+        PathwayCandidate(id="pw1", name="FAR + WS", confidence="strong", reported_titer="7.58 g/L"),
+        PathwayCandidate(id="pw2", name="Direct alcohol", confidence="partial", reported_titer="2 g/L"),
+    ]
+    fba = [
+        FBAValidationResult(
+            pathway_id="pw1",
+            status="optimal",
+            yield_corrected_mol_per_mol_substrate=0.8,
+            verdict="pass",
+            rank=1,
+        ),
+        FBAValidationResult(
+            pathway_id="pw2",
+            status="optimal",
+            yield_corrected_mol_per_mol_substrate=0.2,
+            verdict="fail",
+            rank=2,
+        ),
+    ]
+    brief = ResearchBrief(
+        ticket_id="t1",
+        raw_brief="raw",
+        target=CompoundSpec(name="wax ester"),
+        feedstock=CompoundSpec(name="oleic acid"),
+    )
+    md = _build_executive_summary_markdown(
+        brief,
+        ValidationMode.FBA,
+        candidates,
+        candidates[0],
+        "pw1",
+        fba,
+        None,
+    )
+    assert "### Pathway Comparison" in md
+    assert "FAR + WS*" in md
+    assert "Direct alcohol" in md
+    assert "7.58 g/L" in md
+    assert "2 g/L" in md
+
+
+def test_build_executive_summary_omits_empty_rows():
+    brief = ResearchBrief(
+        ticket_id="t1",
+        raw_brief="raw",
+        target=CompoundSpec(name="wax ester"),
+    )
+    primary = PathwayCandidate(id="pw1", name="FAR + WS", confidence="partial")
+    md = _build_executive_summary_markdown(
+        brief,
+        ValidationMode.LITERATURE_PATHWAY,
+        [primary],
+        primary,
+        "pw1",
+        None,
+        None,
+    )
+    assert "FBA verdict" not in md
+    assert "Predicted yield" not in md
+    assert "Literature benchmark" not in md
+    assert "Chassis organism" not in md
+
+
+def test_recommendation_text_pass_vs_fail():
+    primary = PathwayCandidate(
+        id="pw1",
+        name="FAR + WS",
+        confidence="strong",
+        confidence_rationale="Literature-backed",
+    )
+    pass_fba = FBAValidationResult(pathway_id="pw1", status="optimal", verdict="pass")
+    fail_fba = FBAValidationResult(pathway_id="pw1", status="infeasible", verdict="fail")
+
+    pass_action, pass_rationale = _recommendation_text(primary, pass_fba)
+    fail_action, _ = _recommendation_text(primary, fail_fba)
+
+    assert "Proceed with **FAR + WS**" in pass_action
+    assert "Literature-backed" in pass_rationale
+    assert "Proceed with caution" in fail_action

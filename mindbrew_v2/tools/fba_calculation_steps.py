@@ -15,13 +15,48 @@ def _fmt(value: Any) -> str:
     return str(value)
 
 
-def _exchange_summary(exchanges: Any) -> str:
-    if not isinstance(exchanges, dict) or not exchanges:
+def _format_bounds(bounds: Any) -> str:
+    if isinstance(bounds, (list, tuple)) and len(bounds) >= 2:
+        return f"[{_fmt(bounds[0])}, {_fmt(bounds[1])}]"
+    return _fmt(bounds)
+
+
+def _exchange_summary(
+    exchanges: Any,
+    bounds_lookup: dict[str, Any] | None = None,
+) -> str:
+    if not exchanges:
         return "default model medium"
-    parts = [f"{rxn}: [{bounds[0]}, {bounds[1]}]" for rxn, bounds in list(exchanges.items())[:6]]
-    if len(exchanges) > 6:
-        parts.append(f"+{len(exchanges) - 6} more")
-    return "; ".join(parts)
+
+    if isinstance(exchanges, dict) and (
+        "exchange_bounds_set" in exchanges or "exchange_not_found" in exchanges
+    ):
+        applied = exchanges.get("exchange_bounds_set") or []
+        missing = exchanges.get("exchange_not_found") or []
+        lookup = bounds_lookup or {}
+        parts: list[str] = []
+        for rxn in applied[:6]:
+            bounds = lookup.get(rxn)
+            if bounds is not None:
+                parts.append(f"{rxn}: {_format_bounds(bounds)}")
+            else:
+                parts.append(rxn)
+        if len(applied) > 6:
+            parts.append(f"+{len(applied) - 6} more")
+        if missing:
+            parts.append(f"not found: {', '.join(missing[:4])}")
+        return "; ".join(parts) if parts else "default model medium"
+
+    if isinstance(exchanges, dict):
+        parts = [
+            f"{rxn}: {_format_bounds(bounds)}"
+            for rxn, bounds in list(exchanges.items())[:6]
+        ]
+        if len(exchanges) > 6:
+            parts.append(f"+{len(exchanges) - 6} more")
+        return "; ".join(parts)
+
+    return "default model medium"
 
 
 def build_calculation_steps(raw: dict[str, Any]) -> list[CalculationStep]:
@@ -68,7 +103,7 @@ def build_calculation_steps(raw: dict[str, Any]) -> list[CalculationStep]:
         CalculationStep(
             step=step_no,
             title="Apply exchange constraints",
-            detail=_exchange_summary(exchange_applied),
+            detail=_exchange_summary(exchange_applied, ctx.get("exchange_constraints")),
         )
     )
     step_no += 1
@@ -90,7 +125,9 @@ def build_calculation_steps(raw: dict[str, Any]) -> list[CalculationStep]:
         edit_bits.append(f"knockouts: {', '.join(knocked)}")
     overrides = edits.get("bound_overrides") or {}
     if overrides:
-        override_parts = [f"{rxn} [{b[0]}, {b[1]}]" for rxn, b in list(overrides.items())[:5]]
+        override_parts = [
+            f"{rxn} {_format_bounds(b)}" for rxn, b in list(overrides.items())[:5]
+        ]
         edit_bits.append("bound overrides: " + "; ".join(override_parts))
     not_found = edits.get("not_found") or []
     if not_found:
