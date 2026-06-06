@@ -5,6 +5,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from api.db.database import normalize_database_url
 from api.db.models import Base
 from mindbrew_v2.settings import get_settings
 
@@ -16,7 +17,7 @@ target_metadata = Base.metadata
 
 
 def get_url():
-    return get_settings().database_url
+    return normalize_database_url(get_settings().database_url)
 
 
 def run_migrations_offline() -> None:
