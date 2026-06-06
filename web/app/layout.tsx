@@ -16,7 +16,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Brewmind",
+  title: "Mindbrew",
   description: "Computationally validated pathway blueprint",
 };
 

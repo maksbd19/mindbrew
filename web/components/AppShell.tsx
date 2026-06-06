@@ -9,10 +9,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-6">
           <Link href="/" className="group flex items-center gap-2.5">
             <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-sm font-semibold text-accent">
-              B
+              M
             </span>
             <span className="text-[15px] font-semibold tracking-tight text-foreground group-hover:text-accent transition-colors">
-              Brewmind
+              Mindbrew
             </span>
           </Link>
           <Link href="/sessions/new" className={cn(btnPrimary, "h-8 px-3.5 text-[13px]")}>

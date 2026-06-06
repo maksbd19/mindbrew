@@ -206,7 +206,7 @@ export async function downloadReportExport(sessionId: string, format: "pdf" | "d
   const blob = await res.blob();
   const disposition = res.headers.get("Content-Disposition") ?? "";
   const match = disposition.match(/filename="([^"]+)"/);
-  const filename = match?.[1] ?? `brewmind-report.${format}`;
+  const filename = match?.[1] ?? `mindbrew-report.${format}`;
 
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
