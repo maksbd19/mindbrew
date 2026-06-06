@@ -1,0 +1,29 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: brewmind-api
+    runtime: python
+    plan: free
+    buildCommand: |
+      git submodule update --init --recursive vendor/FBA_Analysis
+      pip install -r requirements.txt
+    releaseCommand: alembic upgrade head
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.11"
+      - key: DATABASE_URL
+        sync: false
+      - key: NEBIUS_API_KEY
+        sync: false
+      - key: NEBIUS_MODEL
+        sync: false
+      - key: NEBIUS_BASE_URL
+        sync: false
+      - key: BREWMIND_OFFLINE
+        value: "false"
+      - key: MAX_REVISIONS
+        value: "5"
+      - key: CORS_ORIGINS
+        sync: false

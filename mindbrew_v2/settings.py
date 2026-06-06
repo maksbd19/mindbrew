@@ -31,7 +31,7 @@ class ConfigurationError(RuntimeError):
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=ENV_FILE,
+        env_file=str(ENV_FILE) if ENV_FILE.is_file() else None,
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -57,11 +57,6 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    if not ENV_FILE.is_file():
-        raise ConfigurationError(
-            f"Configuration file not found: {ENV_FILE}. "
-            "Create it from .env.example and set all required values."
-        )
     try:
         return Settings()
     except ValidationError as exc:
@@ -74,7 +69,8 @@ def get_settings() -> Settings:
             detail = f"Missing required variables: {', '.join(missing)}"
         else:
             detail = str(exc)
-        raise ConfigurationError(f"Invalid configuration in {ENV_FILE}. {detail}") from exc
+        source = str(ENV_FILE) if ENV_FILE.is_file() else "environment"
+        raise ConfigurationError(f"Invalid configuration ({source}). {detail}") from exc
 
 
 def is_offline() -> bool:
