@@ -1,8 +1,73 @@
-import type { LiteraturePlan } from "@/lib/bioLinks";
-import { dataTable, dataTableCell, dataTableHead } from "@/lib/ui";
+import type { GeneSuggestion, LiteraturePlan } from "@/lib/bioLinks";
+import { cn } from "@/lib/ui";
 import ArtifactPanel, { ArtifactSection } from "./ArtifactPanel";
 import CitationBadge from "./CitationBadge";
 import EnzymeChip from "./EnzymeChip";
+
+function actionTone(action: string): "neutral" | "warning" | "success" {
+  switch (action.toLowerCase()) {
+    case "knockout":
+      return "warning";
+    case "heterologous":
+      return "success";
+    default:
+      return "neutral";
+  }
+}
+
+function actionLabel(action: string): string {
+  return action.replace(/_/g, " ");
+}
+
+function ActionBadge({ action }: { action: string }) {
+  const tone = actionTone(action);
+  const toneClass =
+    tone === "warning"
+      ? "border-amber-900/50 bg-amber-950/30 text-amber-300"
+      : tone === "success"
+        ? "border-primary/40 bg-primary/10 text-accent"
+        : "border-border-subtle bg-surface text-muted-light";
+
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide",
+        toneClass
+      )}
+    >
+      {actionLabel(action)}
+    </span>
+  );
+}
+
+function GeneSuggestionCard({
+  suggestion,
+  organism,
+}: {
+  suggestion: GeneSuggestion;
+  organism: string | null;
+}) {
+  return (
+    <article className="overflow-hidden rounded-lg border border-border-subtle bg-surface-raised/40 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <EnzymeChip name={suggestion.gene} organism={organism} />
+        <ActionBadge action={suggestion.action} />
+      </div>
+
+      {suggestion.rationale && (
+        <p className="mt-3 text-[14px] leading-relaxed text-muted-light">{suggestion.rationale}</p>
+      )}
+
+      <div className="mt-4 border-t border-border-subtle pt-3">
+        {suggestion.citation ? (
+          <CitationBadge citation={suggestion.citation} />
+        ) : (
+          <span className="text-[12px] text-danger">No citation</span>
+        )}
+      </div>
+    </article>
+  );
+}
 
 export default function LiteraturePlanView({
   plan,
@@ -37,35 +102,10 @@ export default function LiteraturePlanView({
 
       {(plan.gene_suggestions ?? []).length > 0 && (
         <ArtifactSection title="Gene suggestions">
-          <div className="-mx-5 overflow-x-auto">
-            <table className={dataTable}>
-              <thead>
-                <tr className="bg-surface-raised/50">
-                  <th className={dataTableHead}>Gene</th>
-                  <th className={dataTableHead}>Action</th>
-                  <th className={dataTableHead}>Rationale</th>
-                  <th className={dataTableHead}>Citation</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(plan.gene_suggestions ?? []).map((g) => (
-                  <tr key={g.gene} className="border-b border-border-subtle hover:bg-surface-hover/50">
-                    <td className={dataTableCell}>
-                      <EnzymeChip name={g.gene} organism={org} />
-                    </td>
-                    <td className={dataTableCell}>{g.action}</td>
-                    <td className={`${dataTableCell} text-[13px] text-muted-light`}>{g.rationale}</td>
-                    <td className={dataTableCell}>
-                      {g.citation ? (
-                        <CitationBadge citation={g.citation} />
-                      ) : (
-                        <span className="text-[12px] text-danger">No citation</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-3">
+            {(plan.gene_suggestions ?? []).map((g) => (
+              <GeneSuggestionCard key={g.gene} suggestion={g} organism={org} />
+            ))}
           </div>
         </ArtifactSection>
       )}
