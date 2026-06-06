@@ -45,7 +45,7 @@ flowchart TB
     end
 
     subgraph agent [Agent — mindbrew_v2]
-        graph[LangGraph HITL graph]
+        hitlGraph[LangGraph HITL graph]
         intake[Intake / clarifier]
         formalize[Formalization layer]
         report[Report generator]
@@ -67,17 +67,17 @@ flowchart TB
 
     ui -->|"/api proxy"| api
     api --> runner
-    runner --> graph
-    graph --> intake
-    graph --> litsearch
-    graph --> formalize
+    runner --> hitlGraph
+    hitlGraph --> intake
+    hitlGraph --> litsearch
+    hitlGraph --> formalize
     formalize --> findids
     formalize --> score
-    graph --> report
+    hitlGraph --> report
     intake --> nebius
     litsearch --> nebius
     api --> pg
-    graph --> pg
+    hitlGraph --> pg
 ```
 
 | Layer | Technology | Role |
