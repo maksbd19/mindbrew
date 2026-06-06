@@ -46,6 +46,19 @@ class DecideRequest(BaseModel):
     primary_pathway_id: str | None = None
 
 
+def _session_summary_dict(row) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "title": row.title,
+        "brief_preview": _brief_preview(row.raw_brief),
+        "status": row.status,
+        "current_step": row.current_step,
+        "validation_mode": row.validation_mode,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
 def _session_to_dict(row, session_id: str | None = None) -> dict[str, Any]:
     sid = session_id or row.id
     agent_active = sid in _running or graph_runner.is_session_active(sid)
@@ -107,9 +120,18 @@ def _event_payload(ev) -> dict[str, Any]:
 
 
 @router.get("")
-def list_all(db: Session = Depends(get_db)):
-    rows = list_sessions(db)
-    return [_session_to_dict(r) for r in rows]
+def list_all(page: int = 1, page_size: int = 20, db: Session = Depends(get_db)):
+    rows, total = list_sessions(db, page=page, page_size=page_size)
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 100)
+    total_pages = max(1, (total + page_size - 1) // page_size) if total else 1
+    return {
+        "items": [_session_summary_dict(r) for r in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }
 
 
 @router.post("")

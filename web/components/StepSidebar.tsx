@@ -1,14 +1,15 @@
 "use client";
 
+import { formatStepLabel } from "@/lib/format";
 import { cn } from "@/lib/ui";
 
 const STEPS = [
-  { id: "cp1_spec", label: "1 — Spec" },
-  { id: "cp2_pathways", label: "2 — Pathways" },
-  { id: "cp3_fba_plan", label: "3 — FBA Plan" },
-  { id: "cp3b_literature_plan", label: "3b — Lit Plan" },
-  { id: "cp4_fba_results", label: "4 — Results" },
-  { id: "cp5_report", label: "5 — Report" },
+  { id: "cp1_spec", label: "Spec" },
+  { id: "cp2_pathways", label: "Pathways" },
+  { id: "cp3_fba_plan", label: "FBA Plan" },
+  { id: "cp3b_literature_plan", label: "Literature" },
+  { id: "cp4_fba_results", label: "Results" },
+  { id: "cp5_report", label: "Report" },
 ];
 
 export default function StepSidebar({
@@ -33,31 +34,43 @@ export default function StepSidebar({
   });
 
   return (
-    <nav className="w-[200px] shrink-0">
-      <h3 className="mb-2 mt-0 text-sm text-muted">Steps</h3>
-      <ul className="m-0 list-none p-0">
-        {visible.map((s) => {
+    <nav aria-label="Session steps" className="mb-6 w-full overflow-x-auto border-b border-border-subtle">
+      <div className="flex min-w-max gap-0.5">
+        {visible.map((s, index) => {
           const done = completedSteps.has(s.id);
           const active = s.id === currentStep;
+          const label = s.label || formatStepLabel(s.id);
+
           return (
-            <li key={s.id} className="mb-1.5">
-              <button
-                type="button"
-                onClick={() => onSelect(s.id)}
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => onSelect(s.id)}
+              aria-current={active ? "step" : undefined}
+              className={cn(
+                "relative flex items-center gap-2 whitespace-nowrap px-4 py-3 text-[13px] font-medium transition-colors",
+                active
+                  ? "text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-primary"
+                  : "text-muted hover:text-foreground"
+              )}
+            >
+              <span
                 className={cn(
-                  "w-full cursor-pointer rounded-md border px-2.5 py-1.5 text-left text-sm transition-colors",
+                  "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
                   active
-                    ? "border-primary bg-[#2a3550] text-foreground"
-                    : "border-border bg-transparent text-foreground hover:border-accent/40"
+                    ? "bg-primary text-white"
+                    : done
+                      ? "bg-chip-completed-bg text-chip-completed-text"
+                      : "bg-surface-raised text-muted"
                 )}
               >
-                {done ? "✓ " : ""}
-                {s.label}
-              </button>
-            </li>
+                {done ? "✓" : index + 1}
+              </span>
+              {label}
+            </button>
           );
         })}
-      </ul>
+      </div>
     </nav>
   );
 }

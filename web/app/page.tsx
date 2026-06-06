@@ -1,28 +1,38 @@
-import Link from "next/link";
-import { listSessions, type Session } from "@/lib/api";
+import { listSessions, type PaginatedSessions } from "@/lib/api";
 import SessionList from "@/components/SessionList";
-import { btnPrimary, container } from "@/lib/ui";
+import { container, pageSubtitle, pageTitle } from "@/lib/ui";
 
-export default async function HomePage() {
-  let sessions: Session[] = [];
+const PAGE_SIZE = 15;
+
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: { page?: string };
+}) {
+  const page = Math.max(1, Number(searchParams.page) || 1);
+  let data: PaginatedSessions = { items: [], total: 0, page: 1, page_size: PAGE_SIZE, total_pages: 1 };
+  let error: string | undefined;
+
   try {
-    sessions = await listSessions();
+    data = await listSessions({ page, pageSize: PAGE_SIZE });
   } catch {
-    sessions = [];
+    error = "Could not load sessions. Make sure the API server is running.";
   }
 
   return (
     <div className={container}>
-      <header className="mb-6 flex items-center justify-between gap-4">
-        <div>
-          <h1 className="m-0 text-2xl font-semibold">Brewmind</h1>
-          <p className="mt-1 text-muted">Computationally validated pathway blueprints</p>
-        </div>
-        <Link href="/sessions/new" className={btnPrimary}>
-          New session
-        </Link>
+      <header className="mb-6">
+        <h1 className={pageTitle}>Sessions</h1>
+        <p className={pageSubtitle}>Computationally validated pathway blueprints</p>
       </header>
-      <SessionList sessions={sessions} />
+      <SessionList
+        sessions={data.items}
+        page={data.page}
+        totalPages={data.total_pages}
+        total={data.total}
+        pageSize={data.page_size}
+        error={error}
+      />
     </div>
   );
 }

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { StreamEvent } from "@/lib/api";
-import { card, cn, eventColorClass } from "@/lib/ui";
+import { btnSecondary, card, cn, eventColorClass } from "@/lib/ui";
 
 const TYPE_LABELS: Record<string, string> = {
   log: "log",
@@ -66,46 +67,29 @@ function lastEventAgeSec(events: StreamEvent[]): number | null {
   return null;
 }
 
-export default function StreamLog({
+function LogContent({
   events,
-  running = false,
+  running,
+  staleAge,
+  showStaleBanner,
+  className,
 }: {
   events: StreamEvent[];
-  running?: boolean;
+  running: boolean;
+  staleAge: number | null;
+  showStaleBanner: boolean;
+  className?: string;
 }) {
   const bottom = useRef<HTMLDivElement>(null);
-  const [, tick] = useState(0);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
   }, [events.length]);
 
-  useEffect(() => {
-    if (!running) return;
-    const id = window.setInterval(() => tick((n) => n + 1), 1000);
-    return () => window.clearInterval(id);
-  }, [running]);
-
-  const staleAge = useMemo(() => (running ? lastEventAgeSec(events) : null), [events, running, tick]);
-  const showStaleBanner = running && staleAge != null && staleAge > 20;
-
   return (
-    <div
-      className={cn(
-        card,
-        "mb-4 overflow-auto font-mono text-xs",
-        running ? "h-96" : "h-52"
-      )}
-    >
-      <div className="mb-2 flex items-center gap-2">
-        <strong>Agent log</strong>
-        {running && <span className="text-xs text-accent">● live</span>}
-        <span className="ml-auto text-[0.7rem] text-gray-500">
-          {events.length} event{events.length === 1 ? "" : "s"}
-        </span>
-      </div>
+    <div className={cn("overflow-y-auto px-4 py-3 font-mono text-[12px] leading-relaxed sm:px-6", className)}>
       {showStaleBanner && (
-        <div className="mb-2 flex items-center gap-2 rounded border border-blue-900/40 bg-blue-950/30 px-2 py-1.5 text-muted-light">
+        <div className="mb-3 flex items-center gap-2 rounded-md border border-blue-900/40 bg-blue-950/30 px-3 py-2 text-[13px] text-muted-light">
           <span className="animate-pulse text-accent">●</span>
           Still working… last update {Math.round(staleAge!)}s ago
         </div>
@@ -123,14 +107,129 @@ export default function StreamLog({
         return (
           <div
             key={e.seq ?? i}
-            className={cn("mt-1 break-words leading-snug", eventColorClass(e.type, e.level))}
+            className={cn("mt-0.5 break-words", eventColorClass(e.type, e.level))}
           >
-            {ts && <span className="mr-1.5 text-gray-600">[{ts}]</span>}
-            <span className="text-gray-500">[{label}]</span> {text}
+            {ts && <span className="mr-1.5 text-muted/60">[{ts}]</span>}
+            <span className="text-muted/70">[{label}]</span> {text}
           </div>
         );
       })}
       <div ref={bottom} />
     </div>
+  );
+}
+
+export default function StreamLog({
+  events,
+  running = false,
+  column = false,
+}: {
+  events: StreamEvent[];
+  running?: boolean;
+  /** Render as a side-panel column (fills available height). */
+  column?: boolean;
+}) {
+  const [, tick] = useState(0);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (!running) return;
+    const id = window.setInterval(() => tick((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [running]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setFullscreen(false);
+      }
+    };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [fullscreen]);
+
+  const staleAge = useMemo(() => (running ? lastEventAgeSec(events) : null), [events, running, tick]);
+  const showStaleBanner = running && staleAge != null && staleAge > 20;
+
+  const enterFullscreen = useCallback(() => setFullscreen(true), []);
+  const exitFullscreen = useCallback(() => setFullscreen(false), []);
+
+  const header = (isFullscreen: boolean) => (
+    <div className="flex shrink-0 items-center gap-3 border-b border-border-subtle px-4 py-2.5">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="text-[13px] font-semibold text-foreground">Agent log</span>
+        {running && (
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-accent">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+            live
+          </span>
+        )}
+      </div>
+      <span className="ml-auto text-[11px] text-muted">
+        {events.length} event{events.length === 1 ? "" : "s"}
+      </span>
+      <button
+        type="button"
+        onClick={isFullscreen ? exitFullscreen : enterFullscreen}
+        className={cn(btnSecondary, "relative z-10 h-7 shrink-0 px-2.5 text-[11px]")}
+        aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+      >
+        {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+      </button>
+    </div>
+  );
+
+  const panel = (
+    <section
+      className={cn(
+        card,
+        "flex flex-col overflow-hidden",
+        column ? "h-full min-h-[280px] rounded-lg" : "w-full rounded-none border-x-0 border-b-0"
+      )}
+    >
+      {header(false)}
+      <LogContent
+        events={events}
+        running={running}
+        staleAge={staleAge}
+        showStaleBanner={showStaleBanner}
+        className={cn(
+          column ? "min-h-0 flex-1" : running ? "h-72 sm:h-80" : "h-48 sm:h-56"
+        )}
+      />
+    </section>
+  );
+
+  const fullscreenOverlay =
+    mounted &&
+    createPortal(
+      <div className="fixed inset-0 z-[200] flex flex-col bg-page">
+        {header(true)}
+        <LogContent
+          events={events}
+          running={running}
+          staleAge={staleAge}
+          showStaleBanner={showStaleBanner}
+          className="min-h-0 flex-1"
+        />
+      </div>,
+      document.body
+    );
+
+  return (
+    <>
+      {panel}
+      {fullscreen && fullscreenOverlay}
+    </>
   );
 }

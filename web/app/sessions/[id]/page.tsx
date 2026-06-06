@@ -25,9 +25,10 @@ import {
   card,
   cn,
   container,
-  link,
+  pageSubtitle,
   statusChipClass,
 } from "@/lib/ui";
+import { formatStatusLabel } from "@/lib/format";
 
 /** Recovery markers — errors before these are stale and should not show in the banner. */
 const ERROR_RECOVERY_TYPES = new Set([
@@ -95,16 +96,21 @@ export default function SessionDetailPage() {
   const [pendingAction, setPendingAction] = useState<"proceed" | "revise" | "restart" | null>(null);
   const lastSeqRef = useRef(0);
 
-  const applySession = useCallback((s: Session) => {
+  const applySession = useCallback((s: Session, opts?: { followStep?: boolean }) => {
     setSession(s);
-    setViewStep(s.current_step);
+    if (opts?.followStep) {
+      setViewStep(s.current_step);
+    }
   }, []);
 
-  const refresh = useCallback(async () => {
-    const s = await getSession(sessionId);
-    applySession(s);
-    return s;
-  }, [sessionId, applySession]);
+  const refresh = useCallback(
+    async (opts?: { followStep?: boolean }) => {
+      const s = await getSession(sessionId);
+      applySession(s, opts);
+      return s;
+    },
+    [sessionId, applySession]
+  );
 
   const syncEvents = useCallback(async () => {
     const rows = await getSessionEvents(sessionId, lastSeqRef.current);
@@ -137,7 +143,7 @@ export default function SessionDetailPage() {
   useEffect(() => {
     lastSeqRef.current = 0;
     setEvents([]);
-    refresh();
+    refresh({ followStep: true });
     syncEvents().catch(() => {});
   }, [sessionId, refresh, syncEvents]);
 
@@ -229,7 +235,7 @@ export default function SessionDetailPage() {
     setPendingAction("restart");
     try {
       const started = await restartSessionStep(sessionId, stepId);
-      applySession(started);
+      applySession(started, { followStep: true });
       setEvents((prev) =>
         mergeEvents(prev, [{ type: "step_restart_requested", step_id: stepId }])
       );
@@ -291,7 +297,7 @@ export default function SessionDetailPage() {
 
     try {
       const started = await submitDecision(sessionId, stepId, body);
-      applySession(started);
+      applySession(started, { followStep: true });
 
       for (let i = 0; i < 180; i++) {
         await syncEvents();
@@ -339,99 +345,110 @@ export default function SessionDetailPage() {
         : "Agent is working on the current step…";
 
   return (
-    <div className={container}>
-      <div className="mb-4">
-        <Link href="/" className={link}>
-          ← Sessions
-        </Link>
-        <p className="mt-2 whitespace-pre-wrap text-[0.95rem] leading-relaxed text-muted-light">
-          {session?.raw_brief || "Loading…"}
-        </p>
-        <div className={cn(actionBar, "mt-3")}>
-          {session && <span className={statusChipClass(session.status)}>{session.status}</span>}
-          {showStop && (
-            <button type="button" className={btnSecondary} onClick={handleInterrupt}>
-              Stop agent
-            </button>
-          )}
-          {showResume && (
-            <button type="button" className={btnPrimary} onClick={handleResume}>
-              Resume
-            </button>
-          )}
-          {showHeaderRestart && (
-            <button type="button" className={btnSecondary} onClick={handleRestartStep} disabled={restarting}>
-              {restarting ? "Restarting…" : "Restart step"}
-            </button>
-          )}
-          {session?.status === "failed" && (
-            <button type="button" className={btnPrimary} onClick={handleRetry}>
-              Retry
-            </button>
-          )}
-        </div>
-        {(streamError || actionError) && (
-          <div className={cn(card, "mt-3 border-red-900/60 text-sm text-danger")}>
-            {streamError && <p className="m-0">{streamError}</p>}
-            {actionError && <p className={streamError ? "mb-0 mt-2" : "m-0"}>{actionError}</p>}
-            {session?.status === "failed" && streamError?.includes("Connection") && (
-              <p className="mb-0 mt-2 text-muted">
-                Tip: set <code className="rounded border border-border bg-page px-1 py-0.5 text-xs">BREWMIND_OFFLINE=true</code> in{" "}
-                <code className="rounded border border-border bg-page px-1 py-0.5 text-xs">.env</code> for local dev without
-                Nebius, or verify your API key and network.
-              </p>
+    <div className="flex min-h-[calc(100dvh-3.5rem)] w-full flex-col overflow-x-hidden">
+      <div className={cn(container, "flex min-h-0 w-full flex-1 flex-col")}>
+        <div className="shrink-0">
+          <Link href="/" className="text-[13px] text-muted transition-colors hover:text-accent">
+            ← Back to sessions
+          </Link>
+          <p className={cn(pageSubtitle, "mt-3 whitespace-pre-wrap")}>
+            {session?.raw_brief || "Loading…"}
+          </p>
+          <div className={cn(actionBar, "mt-3")}>
+            {session && (
+              <span className={statusChipClass(session.status)}>{formatStatusLabel(session.status)}</span>
+            )}
+            {showStop && (
+              <button type="button" className={btnSecondary} onClick={handleInterrupt}>
+                Stop agent
+              </button>
+            )}
+            {showResume && (
+              <button type="button" className={btnPrimary} onClick={handleResume}>
+                Resume
+              </button>
+            )}
+            {showHeaderRestart && (
+              <button type="button" className={btnSecondary} onClick={handleRestartStep} disabled={restarting}>
+                {restarting ? "Restarting…" : "Restart step"}
+              </button>
+            )}
+            {session?.status === "failed" && (
+              <button type="button" className={btnPrimary} onClick={handleRetry}>
+                Retry
+              </button>
             )}
           </div>
-        )}
-      </div>
+          {(streamError || actionError) && (
+            <div className={cn(card, "mt-3 border-red-900/60 p-4 text-[13px] text-danger")}>
+              {streamError && <p className="m-0">{streamError}</p>}
+              {actionError && <p className={streamError ? "mb-0 mt-2" : "m-0"}>{actionError}</p>}
+              {session?.status === "failed" && streamError?.includes("Connection") && (
+                <p className="mb-0 mt-2 text-muted">
+                  Tip: set{" "}
+                  <code className="rounded border border-border bg-page px-1 py-0.5 text-xs">
+                    BREWMIND_OFFLINE=true
+                  </code>{" "}
+                  in{" "}
+                  <code className="rounded border border-border bg-page px-1 py-0.5 text-xs">.env</code> for local dev
+                  without Nebius, or verify your API key and network.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
 
-      <div className="flex items-stretch gap-6">
         <StepSidebar
           currentStep={viewStep}
           completedSteps={completedSteps}
           onSelect={setViewStep}
           validationMode={session?.validation_mode || null}
         />
-        <div className="flex min-h-[calc(100vh-10rem)] min-w-0 flex-1 flex-col">
-          <div className="flex-1 space-y-4 overflow-y-auto pb-4">
+
+        <div className="mt-6 grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="min-h-0 min-w-0 max-w-full space-y-4 overflow-x-hidden overflow-y-auto pb-6 [scrollbar-gutter:stable]">
             {(showStop || deciding || restarting) && session && (
-              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-light">
-                <span className={statusChipClass(session.status)}>{session.status}</span>
+              <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted-light">
+                <span className={statusChipClass(session.status)}>{formatStatusLabel(session.status)}</span>
                 {activePhase && (
                   <>
-                    <span className="text-gray-600">·</span>
+                    <span className="text-muted/40">·</span>
                     <span className="truncate">{activePhase}</span>
                   </>
                 )}
               </div>
             )}
-            <StreamLog events={events} running={showStop || deciding || restarting} />
+
             {(deciding || restarting || (session?.status === "running" && session.agent_active)) && (
-              <div className={cn(card, "border-blue-900/50 text-sm text-muted")}>
+              <div className={cn(card, "border-blue-900/50 p-4 text-[13px] text-muted")}>
                 <p className="m-0 text-accent">{workingMessage}</p>
                 <p className="mb-0 mt-2">
                   Status: <strong className="text-foreground">{session?.status}</strong>
                   {session?.current_step ? ` · checkpoint ${session.current_step}` : ""}
                 </p>
-                {activePhase && (
-                  <p className="mb-0 mt-1.5 text-muted-light">Latest: {activePhase}</p>
-                )}
+                {activePhase && <p className="mb-0 mt-1.5 text-muted-light">Latest: {activePhase}</p>}
               </div>
             )}
+
             <ArtifactView stepId={viewStep} artifact={artifact} />
+
+            {showDecisionPanel && (
+              <ReviseDialog
+                showPathwaySelect={viewStep === "cp2_pathways"}
+                pathwayIds={pathwayIds}
+                proceedDisabled={Boolean(proceedBlocked)}
+                proceedDisabledReason={proceedBlocked}
+                busy={deciding || restarting}
+                onRestart={handleRestartStep}
+                onProceed={(opts) => sendDecision("proceed", opts)}
+                onRevise={(notes) => sendDecision("revise", { notes })}
+              />
+            )}
           </div>
-          {showDecisionPanel && (
-            <ReviseDialog
-              showPathwaySelect={viewStep === "cp2_pathways"}
-              pathwayIds={pathwayIds}
-              proceedDisabled={Boolean(proceedBlocked)}
-              proceedDisabledReason={proceedBlocked}
-              busy={deciding || restarting}
-              onRestart={handleRestartStep}
-              onProceed={(opts) => sendDecision("proceed", opts)}
-              onRevise={(notes) => sendDecision("revise", { notes })}
-            />
-          )}
+
+          <aside className="flex min-h-[320px] min-w-0 flex-col lg:sticky lg:top-[4.5rem] lg:max-h-[calc(100dvh-5.5rem)] lg:min-h-0">
+            <StreamLog events={events} running={showStop || deciding || restarting} column />
+          </aside>
         </div>
       </div>
     </div>

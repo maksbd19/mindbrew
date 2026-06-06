@@ -5,36 +5,44 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export const container = "mx-auto max-w-6xl px-6 py-6";
+export const container = "mx-auto w-full max-w-6xl px-6 py-8";
 
-export const card = "mb-3 rounded-lg border border-border bg-surface p-4";
+export const pageTitle = "text-xl font-semibold tracking-tight text-foreground";
 
-export const cardTitle = "mb-3 text-base font-semibold text-foreground";
+export const pageSubtitle = "mt-1 text-[14px] text-muted";
 
-export const cardSubtitle = "mb-2 text-sm font-semibold text-muted";
+export const card = "rounded-lg border border-border bg-surface shadow-card";
+
+export const cardTitle = "text-[15px] font-semibold text-foreground";
+
+export const cardSubtitle = "text-[13px] font-medium text-muted";
 
 export const btnBase =
-  "inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-55";
+  "inline-flex items-center justify-center rounded-md px-4 py-2 text-[13px] font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-page disabled:cursor-not-allowed disabled:opacity-50";
 
 export const btnPrimary = cn(btnBase, "bg-primary text-white hover:bg-primary-hover");
 
-export const btnSecondary = cn(btnBase, "bg-secondary text-foreground hover:bg-secondary-hover");
+export const btnSecondary = cn(
+  btnBase,
+  "border border-border bg-surface-raised text-foreground hover:bg-surface-hover"
+);
 
 export const actionBar = "flex flex-wrap items-center gap-2";
 
 export const inputBase =
-  "w-full rounded-md border border-border bg-page px-3 py-2 text-foreground placeholder:text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent";
+  "w-full rounded-md border border-border bg-surface px-3 py-2 text-[14px] text-foreground placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20";
 
-export const link = "text-accent hover:underline";
+export const link = "text-accent hover:text-accent-muted hover:underline";
 
-export const dataTable = "w-full border-collapse text-sm";
+export const dataTable = "w-full text-left text-[14px]";
 
-export const dataTableHead = "text-left text-muted";
+export const dataTableHead =
+  "border-b border-border-subtle px-5 py-3 text-[11px] font-medium uppercase tracking-wider text-muted";
 
-export const dataTableCell = "border-b border-border px-2 py-1.5 align-top";
+export const dataTableCell = "px-5 py-3.5 align-middle";
 
 export function statusChipClass(status: string): string {
-  const base = "inline-block rounded-full px-2 py-0.5 text-xs";
+  const base = "inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium";
   switch (status) {
     case "awaiting_user":
       return cn(base, "bg-chip-awaiting-bg text-chip-awaiting-text");
@@ -46,15 +54,15 @@ export function statusChipClass(status: string): string {
     case "failed":
       return cn(base, "bg-chip-interrupted-bg text-chip-interrupted-text");
     default:
-      return cn(base, "bg-secondary text-foreground");
+      return cn(base, "bg-secondary text-muted-light");
   }
 }
 
 export function eventColorClass(type: string, level?: string): string {
   if (type === "error" || level === "error") return "text-danger";
   if (level === "warning") return "text-warning";
-  if (type === "log") return "text-muted-light";
-  if (type === "heartbeat") return "text-gray-500 italic";
+  if (type === "log") return "text-muted";
+  if (type === "heartbeat") return "text-muted/60 italic";
   if (type === "node_start") return "text-accent";
   if (type === "node_end" || type === "step_complete") return "text-success";
   if (type === "awaiting_user") return "text-warning";

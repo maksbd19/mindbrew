@@ -3,7 +3,16 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    @apply scroll-smooth;
+    scrollbar-gutter: stable;
+  }
+
   body {
-    @apply min-h-screen bg-page text-foreground antialiased;
+    @apply min-h-screen w-full overflow-x-hidden bg-page font-sans text-[15px] leading-relaxed text-foreground antialiased;
+  }
+
+  ::selection {
+    @apply bg-primary/30 text-foreground;
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { actionBar, btnPrimary, btnSecondary, cn, inputBase } from "@/lib/ui";
+import { actionBar, btnPrimary, btnSecondary, card, cn, inputBase } from "@/lib/ui";
 
 export default function ReviseDialog({
   onProceed,
@@ -26,7 +26,7 @@ export default function ReviseDialog({
   const [selected, setSelected] = useState<string[]>(pathwayIds?.[0] ? [pathwayIds[0].id] : []);
 
   return (
-    <div className="z-10 shrink-0 border-t border-border bg-surface p-4 shadow-[0_-8px_24px_rgba(0,0,0,0.35)]">
+    <div className={cn(card, "p-4")}>
       {showPathwaySelect && pathwayIds && (
         <div className="mb-3">
           <strong className="text-sm">Select pathway(s)</strong>

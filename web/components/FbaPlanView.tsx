@@ -1,5 +1,5 @@
 import type { Citation } from "@/lib/bioLinks";
-import { card, cardTitle } from "@/lib/ui";
+import ArtifactPanel, { ArtifactSection } from "./ArtifactPanel";
 import CitationBadge from "./CitationBadge";
 
 type CandidateReaction = {
@@ -41,91 +41,100 @@ export default function FbaPlanView({
   gemProfile?: Record<string, unknown> | null;
 }) {
   return (
-    <div className={card}>
-      <h3 className={cardTitle}>FBA formalization plan</h3>
-      {gemProfile && (
-        <p className="text-sm text-muted">
-          Model: {String(gemProfile.model_ref || gemProfile.gem_id || "")} /{" "}
-          {String(gemProfile.scenario || "")}
-        </p>
-      )}
-      {payloads.map((p) => (
-        <div key={p.pathway_id} className="border-b border-border py-3 text-sm last:border-b-0">
-          <strong>{p.pathway_id}</strong>
-          <dl className="my-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-            {p.carbon_source_rxn && (
-              <>
-                <dt className="text-muted">Carbon source</dt>
-                <dd className="font-mono">{p.carbon_source_rxn}</dd>
-              </>
+    <ArtifactPanel
+      title="FBA formalization plan"
+      subtitle={
+        gemProfile
+          ? `Model: ${String(gemProfile.model_ref || gemProfile.gem_id || "")} · ${String(gemProfile.scenario || "")}`
+          : `${payloads.length} pathway payload${payloads.length === 1 ? "" : "s"}`
+      }
+    >
+      <div className="space-y-4">
+        {payloads.map((p) => (
+          <div key={p.pathway_id} className="rounded-lg border border-border-subtle bg-surface-raised/50 p-4">
+            <h3 className="font-mono text-[14px] font-semibold text-accent">{p.pathway_id}</h3>
+
+            <dl className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {p.carbon_source_rxn && (
+                <div>
+                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">Carbon source</dt>
+                  <dd className="mt-0.5 font-mono text-[13px] text-foreground">{p.carbon_source_rxn}</dd>
+                </div>
+              )}
+              {p.product_metabolite && (
+                <div>
+                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">Product</dt>
+                  <dd className="mt-0.5 font-mono text-[13px] text-foreground">{p.product_metabolite}</dd>
+                </div>
+              )}
+              {p.scenario && (
+                <div className="sm:col-span-2">
+                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">Scenario</dt>
+                  <dd className="mt-0.5 break-all font-mono text-[13px] text-foreground">{p.scenario}</dd>
+                </div>
+              )}
+              {(p.knockouts ?? []).length > 0 && (
+                <div className="sm:col-span-2">
+                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">Knockouts</dt>
+                  <dd className="mt-0.5 font-mono text-[13px] text-foreground">{(p.knockouts ?? []).join(", ")}</dd>
+                </div>
+              )}
+              {p.substrate_moles_per_product != null && p.substrate_moles_per_product !== 1 && (
+                <div>
+                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">Substrate mol/product</dt>
+                  <dd className="mt-0.5 text-[13px] text-foreground">{p.substrate_moles_per_product}</dd>
+                </div>
+              )}
+            </dl>
+
+            {(p.candidate_reactions ?? []).length > 0 && (
+              <ArtifactSection title="Candidate reactions">
+                <ul className="space-y-2">
+                  {(p.candidate_reactions ?? []).map((r) => (
+                    <li key={r.id} className="rounded-md border border-border-subtle bg-surface px-3 py-2.5">
+                      <div className="text-[13px]">
+                        <span className="font-mono font-medium text-accent">{r.id}</span>
+                        {r.name ? <span className="text-muted"> — {r.name}</span> : null}
+                      </div>
+                      {r.stoichiometry && Object.keys(r.stoichiometry).length > 0 && (
+                        <div className="mt-1.5 font-mono text-[12px] text-muted-light">
+                          {formatStoichiometry(r.stoichiometry)}
+                        </div>
+                      )}
+                      {r.gene_associations?.length ? (
+                        <div className="mt-1 text-[12px] text-muted">
+                          Genes: {r.gene_associations.join(", ")}
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </ArtifactSection>
             )}
-            {p.product_metabolite && (
-              <>
-                <dt className="text-muted">Product</dt>
-                <dd className="font-mono">{p.product_metabolite}</dd>
-              </>
+
+            {(p.source_citations ?? []).length > 0 && (
+              <ArtifactSection title="Source literature">
+                <div className="space-y-1">
+                  {(p.source_citations ?? []).map((c, i) => (
+                    <CitationBadge key={`${p.pathway_id}-src-${i}`} citation={c} />
+                  ))}
+                </div>
+              </ArtifactSection>
             )}
-            {p.scenario && (
-              <>
-                <dt className="text-muted">Scenario</dt>
-                <dd className="break-all font-mono">{p.scenario}</dd>
-              </>
-            )}
-            {(p.knockouts ?? []).length > 0 && (
-              <>
-                <dt className="text-muted">Knockouts</dt>
-                <dd className="font-mono">{(p.knockouts ?? []).join(", ")}</dd>
-              </>
-            )}
-            {p.substrate_moles_per_product != null && p.substrate_moles_per_product !== 1 && (
-              <>
-                <dt className="text-muted">Substrate mol/product</dt>
-                <dd>{p.substrate_moles_per_product}</dd>
-              </>
-            )}
-          </dl>
-          {(p.candidate_reactions ?? []).length > 0 && (
-            <ul className="my-1.5 list-none space-y-2 pl-0">
-              {(p.candidate_reactions ?? []).map((r) => (
-                <li key={r.id} className="rounded border border-border/60 px-2 py-1.5">
-                  <div>
-                    <strong>{r.id}</strong>
-                    {r.name ? <span className="text-muted"> — {r.name}</span> : null}
-                  </div>
-                  {r.stoichiometry && Object.keys(r.stoichiometry).length > 0 && (
-                    <div className="mt-1 font-mono text-xs text-muted">
-                      {formatStoichiometry(r.stoichiometry)}
-                    </div>
-                  )}
-                  {r.gene_associations?.length ? (
-                    <div className="mt-0.5 text-xs text-muted">
-                      genes: {r.gene_associations.join(", ")}
-                    </div>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
-          {(p.source_citations ?? []).length > 0 && (
-            <div className="mt-1.5">
-              <strong className="text-xs">Source literature</strong>
-              {(p.source_citations ?? []).map((c, i) => (
-                <CitationBadge key={`${p.pathway_id}-src-${i}`} citation={c} />
-              ))}
-            </div>
-          )}
-        </div>
-      ))}
+          </div>
+        ))}
+      </div>
+
       {(skipped ?? []).length > 0 && (
-        <div className="mt-3 text-sm text-danger">
-          <strong>Skipped:</strong>
-          <ul className="list-disc pl-5">
+        <div className="mt-4 rounded-md border border-red-900/40 bg-red-950/20 px-3 py-3">
+          <p className="text-[12px] font-medium uppercase tracking-wide text-red-300">Skipped pathways</p>
+          <ul className="mt-2 space-y-1 text-[13px] text-red-200">
             {(skipped ?? []).map((s) => (
               <li key={s}>{s}</li>
             ))}
           </ul>
         </div>
       )}
-    </div>
+    </ArtifactPanel>
   );
 }

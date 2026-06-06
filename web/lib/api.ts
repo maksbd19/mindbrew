@@ -8,16 +8,28 @@ function apiBase(): string {
 
 export const API_URL = apiBase();
 
-export type Session = {
+export type SessionSummary = {
   id: string;
   title: string;
-  raw_brief: string;
+  brief_preview: string;
   status: string;
   current_step: string;
   validation_mode: string | null;
-  agent_active?: boolean;
   created_at: string;
   updated_at: string;
+};
+
+export type PaginatedSessions = {
+  items: SessionSummary[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+};
+
+export type Session = SessionSummary & {
+  raw_brief: string;
+  agent_active?: boolean;
   steps: StepRecord[];
 };
 
@@ -45,8 +57,17 @@ export type StreamEvent = {
   notes?: string;
 };
 
-export async function listSessions(): Promise<Session[]> {
-  const res = await fetch(`${API_URL}/sessions`, { cache: "no-store" });
+export async function listSessions(options?: {
+  page?: number;
+  pageSize?: number;
+}): Promise<PaginatedSessions> {
+  const page = options?.page ?? 1;
+  const pageSize = options?.pageSize ?? 20;
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  const res = await fetch(`${API_URL}/sessions?${params}`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to list sessions");
   return res.json();
 }
