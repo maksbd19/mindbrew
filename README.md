@@ -184,7 +184,6 @@ Formalization lives in [`mindbrew_v2/phases/formalize.py`](mindbrew_v2/phases/fo
 
 ```
 brewmind/
-├── mindbrew_v1/              # FROZEN prototype — reference only, never imported
 ├── mindbrew_v2/              # Agent core
 │   ├── config/
 │   │   ├── llm.py            # Nebius client + structured extraction
