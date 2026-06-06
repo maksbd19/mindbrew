@@ -26,6 +26,9 @@ def build_literature_plan(
     candidate: PathwayCandidate,
     revision_notes: str | None = None,
 ) -> LiteraturePathwayPlan:
+    from mindbrew_v2.progress import log
+
+    log(f"Building literature plan for pathway: {candidate.name}")
     prompt = f"""Build a literature-backed pathway plan for:
 Pathway: {candidate.name}
 Description: {candidate.description}
@@ -65,6 +68,7 @@ For each gene_suggestion you MUST include a citation with DOI or PMID supporting
         if g.citation:
             plan_citations.append(g.citation)
 
+    log(f"Literature plan ready: {len(gene_suggestions)} gene suggestion(s)")
     return LiteraturePathwayPlan(
         pathway_id=candidate.id,
         pathway_name=candidate.name,

@@ -25,6 +25,13 @@ def run_find_ids(model_ref: str) -> dict[str, Any]:
     if is_offline():
         return _offline_find_ids()
 
+    import time
+
+    from mindbrew_v2.progress import log, log_timing
+
+    log(f"FBA find_ids running for {model_ref}…")
+    started = time.perf_counter()
+
     find_ids_script = VENDOR_ROOT / "find_ids.py"
     if not find_ids_script.exists():
         return _offline_find_ids()
@@ -34,15 +41,24 @@ def run_find_ids(model_ref: str) -> dict[str, Any]:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False)
         if result.returncode == 0 and result.stdout.strip():
+            log_timing(f"FBA find_ids ({model_ref})", time.perf_counter() - started)
             return json.loads(result.stdout)
     except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
         pass
+    log("FBA find_ids failed; using offline stub", level="warning")
     return _offline_find_ids()
 
 
 def score_pathway(payload: ScorePathwayPayload) -> FBAValidationResult:
     if is_offline():
         return _offline_score(payload)
+
+    import time
+
+    from mindbrew_v2.progress import log, log_timing
+
+    log(f"FBA score_pathway running for {payload.pathway_id}…")
+    started = time.perf_counter()
 
     fba_script = VENDOR_ROOT / "fba_tool.py"
     if not fba_script.exists():
@@ -65,9 +81,15 @@ print(json.dumps(sp(**payload)))
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, check=False)
         if result.returncode == 0 and result.stdout.strip():
             data = json.loads(result.stdout)
-            return _parse_fba_result(payload.pathway_id, data)
+            parsed = _parse_fba_result(payload.pathway_id, data)
+            log_timing(
+                f"FBA score_pathway ({payload.pathway_id}, {parsed.status})",
+                time.perf_counter() - started,
+            )
+            return parsed
     except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
         pass
+    log(f"FBA score_pathway failed for {payload.pathway_id}; using offline stub", level="warning")
     return _offline_score(payload)
 
 

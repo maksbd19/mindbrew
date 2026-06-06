@@ -14,8 +14,15 @@ _FIELD_ENV = {
     "nebius_base_url": "NEBIUS_BASE_URL",
     "brewmind_offline": "BREWMIND_OFFLINE",
     "fba_python": "FBA_PYTHON",
-    "biomni_data_path": "BIOMNI_DATA_PATH",
     "max_revisions": "MAX_REVISIONS",
+    "literature_retrieval_enabled": "LITERATURE_RETRIEVAL_ENABLED",
+    "lamin_public_dbs": "LAMIN_PUBLIC_DBS",
+    "literature_max_ontology_hits": "LITERATURE_MAX_ONTOLOGY_HITS",
+    "literature_max_artifact_hits": "LITERATURE_MAX_ARTIFACT_HITS",
+    "literature_max_pubmed_hits": "LITERATURE_MAX_PUBMED_HITS",
+    "literature_max_crossref_hits": "LITERATURE_MAX_CROSSREF_HITS",
+    "literature_context_max_chars": "LITERATURE_CONTEXT_MAX_CHARS",
+    "progress_heartbeat_interval_sec": "PROGRESS_HEARTBEAT_INTERVAL_SEC",
 }
 
 
@@ -36,8 +43,18 @@ class Settings(BaseSettings):
     nebius_base_url: str
     brewmind_offline: bool
     fba_python: str
-    biomni_data_path: str
     max_revisions: int
+    literature_retrieval_enabled: bool = True
+    lamin_public_dbs: str = "laminlabs/cellxgene"
+    literature_max_ontology_hits: int = 5
+    literature_max_artifact_hits: int = 5
+    literature_max_pubmed_hits: int = 8
+    literature_max_crossref_hits: int = 5
+    literature_context_max_chars: int = 8000
+    progress_heartbeat_interval_sec: int = 15
+
+    def lamin_public_db_list(self) -> list[str]:
+        return [item.strip() for item in self.lamin_public_dbs.split(",") if item.strip()]
 
 
 @lru_cache

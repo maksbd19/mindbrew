@@ -42,5 +42,5 @@ gems:
 
   - id: auto
     model_ref: null
-    description: Biomni/clarifier suggests organism; registry picks best match
+    description: Clarifier suggests organism; registry picks best match
     enabled: false

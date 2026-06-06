@@ -38,14 +38,14 @@ function lastError(events: StreamEvent[]): string | null {
 
 function mergeEvents(prev: StreamEvent[], incoming: StreamEvent[]): StreamEvent[] {
   if (incoming.length === 0) return prev;
-  const seen = new Set(prev.map((e) => JSON.stringify(e)));
+  const seen = new Set(prev.map((e) => e.seq).filter((s): s is number => s != null));
   const merged = [...prev];
   for (const evt of incoming) {
-    const key = JSON.stringify(evt);
-    if (!seen.has(key)) {
-      seen.add(key);
-      merged.push(evt);
+    if (evt.seq != null) {
+      if (seen.has(evt.seq)) continue;
+      seen.add(evt.seq);
     }
+    merged.push(evt);
   }
   return merged;
 }
@@ -95,18 +95,22 @@ export default function SessionDetailPage() {
   const syncEvents = useCallback(async () => {
     const rows = await getSessionEvents(sessionId, lastSeqRef.current);
     if (rows.length === 0) return;
-    lastSeqRef.current = rows[rows.length - 1].seq;
+    const lastSeq = rows[rows.length - 1].seq;
+    if (lastSeq != null) lastSeqRef.current = lastSeq;
     setEvents((prev) => mergeEvents(prev, rows));
   }, [sessionId]);
 
   const handleStreamEvent = useCallback(
     (evt: StreamEvent) => {
+      if (evt.seq != null && evt.seq > lastSeqRef.current) {
+        lastSeqRef.current = evt.seq;
+      }
       setEvents((prev) => mergeEvents(prev, [evt]));
       if (evt.type === "awaiting_user") {
         if (evt.step_id) setViewStep(evt.step_id);
         refresh();
       }
-      if (evt.type === "interrupted" || evt.type === "error") {
+      if (evt.type === "interrupted" || evt.type === "user_interrupt" || evt.type === "error") {
         refresh();
       }
       if (evt.type === "step_complete" || evt.type === "done") {
@@ -373,6 +377,17 @@ export default function SessionDetailPage() {
         />
         <div className="flex min-h-[calc(100vh-10rem)] min-w-0 flex-1 flex-col">
           <div className="flex-1 space-y-4 overflow-y-auto pb-4">
+            {(showStop || deciding || restarting) && session && (
+              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-light">
+                <span className={statusChipClass(session.status)}>{session.status}</span>
+                {activePhase && (
+                  <>
+                    <span className="text-gray-600">·</span>
+                    <span className="truncate">{activePhase}</span>
+                  </>
+                )}
+              </div>
+            )}
             <StreamLog events={events} running={showStop || deciding || restarting} />
             {(deciding || restarting || (session?.status === "running" && session.agent_active)) && (
               <div className={cn(card, "border-blue-900/50 text-sm text-muted")}>

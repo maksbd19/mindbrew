@@ -49,12 +49,22 @@ def structured_extract(
     if is_offline():
         return _offline_structured(schema, prompt)
 
+    import time
+
+    from mindbrew_v2.progress import log, log_timing
+
+    model = get_model_for_role(role)
+    log(f"LLM [{role}] calling {model}…")
+    started = time.perf_counter()
+
     llm = get_llm(role=role)
     messages = [
         SystemMessage(content=f"{system}\nSchema: {schema.model_json_schema()}"),
         HumanMessage(content=prompt),
     ]
     response = llm.invoke(messages)
+    log_timing(f"LLM [{role}]", time.perf_counter() - started)
+
     text = str(response.content)
     start = text.find("{")
     end = text.rfind("}") + 1

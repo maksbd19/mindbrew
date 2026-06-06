@@ -21,7 +21,7 @@ from mindbrew_v2.tools.fba_client import rank_fba_results, score_pathway
 NODE_LABELS: dict[str, str] = {
     "intake": "Parsing research brief (intake + gatekeeper)",
     "cp1_spec_review": "Spec review checkpoint",
-    "biomni_search": "Literature pathway search (Biomni A1 — may take several minutes)",
+    "biomni_search": "Literature pathway search (LLM)",
     "cp2_pathway_review": "Pathway selection checkpoint",
     "formalize": "Formalizing pathways for FBA",
     "cp3_fba_plan_review": "FBA plan review checkpoint",

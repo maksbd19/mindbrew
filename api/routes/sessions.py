@@ -14,6 +14,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from api.db.database import get_db
 from api.services import graph_runner
+from api.services.graph_runner import _enrich_event
 from api.services.session_store import (
     append_stream_event,
     create_session,
@@ -87,6 +88,24 @@ def _track_task(session_id: str, coro) -> asyncio.Task:
     return task
 
 
+def _brief_preview(raw_brief: str, limit: int = 120) -> str:
+    text = " ".join(raw_brief.split())
+    return text if len(text) <= limit else f"{text[: limit - 1]}…"
+
+
+def _reject_action(db: Session, session_id: str, action: str, reason: str) -> None:
+    append_stream_event(
+        db,
+        session_id,
+        "action_rejected",
+        {"type": "action_rejected", "action": action, "message": reason},
+    )
+
+
+def _event_payload(ev) -> dict[str, Any]:
+    return _enrich_event({"type": ev.event_type, **ev.payload}, ev.seq, ev.created_at)
+
+
 @router.get("")
 def list_all(db: Session = Depends(get_db)):
     rows = list_sessions(db)
@@ -96,6 +115,16 @@ def list_all(db: Session = Depends(get_db)):
 @router.post("")
 async def create(body: CreateSessionRequest, db: Session = Depends(get_db)):
     row = create_session(db, body.raw_brief, body.title)
+    append_stream_event(
+        db,
+        row.id,
+        "session_created",
+        {
+            "type": "session_created",
+            "session_id": row.id,
+            "content": _brief_preview(body.raw_brief),
+        },
+    )
     _track_task(row.id, _run_graph_background(row.id, body.raw_brief))
     return _session_to_dict(row)
 
@@ -149,11 +178,11 @@ async def interrupt(session_id: str, db: Session = Depends(get_db)):
         append_stream_event(
             db,
             session_id,
-            "interrupted",
+            "user_interrupt",
             {
-                "type": "interrupted",
+                "type": "user_interrupt",
                 "step_id": row.current_step,
-                "message": "Agent run stopped by user",
+                "content": "Agent run stopped by user",
             },
         )
 
@@ -166,10 +195,18 @@ async def retry_failed(session_id: str, db: Session = Depends(get_db)):
     if not row:
         raise HTTPException(404, "Session not found")
     if row.status not in ("failed", "interrupted"):
+        _reject_action(db, session_id, "session_retry", f"Session cannot be retried (status={row.status})")
         raise HTTPException(409, f"Session cannot be retried (status={row.status})")
     if session_id in _running:
+        _reject_action(db, session_id, "session_retry", "Session is already running")
         raise HTTPException(409, "Session is already running")
     update_session_status(db, session_id, "running")
+    append_stream_event(
+        db,
+        session_id,
+        "session_retry",
+        {"type": "session_retry", "step_id": row.current_step, "content": "Retrying failed session"},
+    )
     _track_task(session_id, _run_retry_background(session_id, row.raw_brief))
     return _session_to_dict(row, session_id)
 
@@ -185,10 +222,18 @@ async def resume_interrupted(session_id: str, db: Session = Depends(get_db)):
     if not row:
         raise HTTPException(404, "Session not found")
     if row.status != "interrupted":
+        _reject_action(db, session_id, "user_resume", f"Session is not interrupted (status={row.status})")
         raise HTTPException(409, f"Session is not interrupted (status={row.status})")
     if session_id in _running:
+        _reject_action(db, session_id, "user_resume", "Session is already running")
         raise HTTPException(409, "Session is already running")
     update_session_status(db, session_id, "running")
+    append_stream_event(
+        db,
+        session_id,
+        "user_resume",
+        {"type": "user_resume", "step_id": row.current_step, "content": "Resuming interrupted session"},
+    )
     _track_task(session_id, _run_continue_background(session_id))
     return {"ok": True, "status": "running"}
 
@@ -211,10 +256,7 @@ def list_events(session_id: str, after_seq: int = 0, db: Session = Depends(get_d
     if not get_session(db, session_id):
         raise HTTPException(404, "Session not found")
     events = get_stream_events(db, session_id, after_seq=after_seq)
-    return [
-        {"seq": ev.seq, "type": ev.event_type, **ev.payload}
-        for ev in events
-    ]
+    return [_event_payload(ev) for ev in events]
 
 
 @router.get("/{session_id}/stream")
@@ -229,8 +271,7 @@ async def stream(session_id: str, after_seq: int = 0, db: Session = Depends(get_
             events = get_stream_events(db, session_id, after_seq=seen)
             for ev in events:
                 seen = ev.seq
-                payload = {"type": ev.event_type, **ev.payload}
-                yield {"event": "message", "data": json.dumps(payload)}
+                yield {"event": "message", "data": json.dumps(_event_payload(ev))}
             db.refresh(row)
             agent_active = session_id in _running or graph_runner.is_session_active(session_id)
             if (
@@ -241,7 +282,7 @@ async def stream(session_id: str, after_seq: int = 0, db: Session = Depends(get_
                 if row.status == "completed":
                     yield {"event": "message", "data": json.dumps({"type": "done"})}
                 break
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.25 if agent_active else 0.5)
 
     return EventSourceResponse(event_generator())
 
@@ -254,9 +295,11 @@ async def restart_step(session_id: str, step_id: str, db: Session = Depends(get_
 
     error = graph_runner.validate_step_restart(session_id, step_id, db)
     if error:
+        _reject_action(db, session_id, "step_restart_requested", error)
         raise HTTPException(409, error)
 
     if session_id in _running:
+        _reject_action(db, session_id, "step_restart_requested", "Agent is already processing")
         raise HTTPException(409, "Agent is already processing")
 
     update_session_status(db, session_id, "running", current_step=step_id)
@@ -298,17 +341,27 @@ async def decide(
 
     error = graph_runner.validate_decision(session_id, decision, db)
     if error:
+        _reject_action(db, session_id, "decide", error)
         raise HTTPException(409, error)
 
     if session_id in _running:
+        _reject_action(db, session_id, "decide", "Agent is already processing")
         raise HTTPException(409, "Agent is already processing")
 
     update_session_status(db, session_id, "running", current_step=step_id)
+    notes_snippet = None
+    if body.notes:
+        notes_snippet = body.notes if len(body.notes) <= 80 else f"{body.notes[:77]}…"
     append_stream_event(
         db,
         session_id,
         "decision_accepted",
-        {"type": "decision_accepted", "action": body.action, "step_id": step_id},
+        {
+            "type": "decision_accepted",
+            "action": body.action,
+            "step_id": step_id,
+            "notes": notes_snippet,
+        },
     )
     _track_task(session_id, _run_decide_background(session_id, decision))
     db.refresh(row)

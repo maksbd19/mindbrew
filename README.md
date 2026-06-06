@@ -50,8 +50,8 @@ flowchart TB
         report[Report generator]
     end
 
-    subgraph lit [Literature — Biomni A1]
-        biomni[agent.go]
+    subgraph lit [Literature — LLM]
+        litsearch[structured pathway search]
     end
 
     subgraph fba [Validation — FBA_Analysis]
@@ -68,13 +68,13 @@ flowchart TB
     api --> runner
     runner --> graph
     graph --> intake
-    graph --> biomni
+    graph --> litsearch
     graph --> formalize
     formalize --> findids
     formalize --> score
     graph --> report
     intake --> nebius
-    biomni --> nebius
+    litsearch --> nebius
     api --> pg
     graph --> pg
 ```
@@ -84,9 +84,9 @@ flowchart TB
 | **UI** | Next.js 14 (App Router) | Session list, step wizard, live stream, approve/revise per step |
 | **API** | FastAPI + SSE | Sessions, graph execution, checkpoint resume |
 | **Agent** | LangGraph + Pydantic | Phase graph, typed artifacts, HITL interrupts |
-| **Literature** | [Biomni](https://github.com/snap-stanford/Biomni) `A1` | Pathway suggestions, papers, databases |
+| **Literature** | Nebius LLM (structured extraction) | Pathway suggestions, papers, citations |
 | **Validation** | [FBA_Analysis](https://github.com/yanglu12/FBA_Analysis) | `score_pathway()` on GEM; bottlenecks, calibration tiers |
-| **LLM** | [Nebius Token Factory](https://docs.tokenfactory.nebius.com/) | OpenAI-compatible API for intake, parsing, Biomni config |
+| **LLM** | [Nebius Token Factory](https://docs.tokenfactory.nebius.com/) | OpenAI-compatible API for intake, parsing, literature search |
 | **Store** | PostgreSQL | App sessions + LangGraph checkpoints |
 
 ---
@@ -95,11 +95,11 @@ flowchart TB
 
 ### 1. Two engines, one orchestrator
 
-- **Biomni** owns literature retrieval and pathway hypothesis generation.
+- **Nebius LLM** handles literature pathway hypothesis generation via structured extraction.
 - **FBA_Analysis** owns flux balance validation.
-- **Brewmind** owns intake, formalization (Biomni biochemistry → FBA payloads), ranking interpretation, HITL gates, and report assembly.
+- **Brewmind** owns intake, formalization (pathway biochemistry → FBA payloads), ranking interpretation, HITL gates, and report assembly.
 
-Biomni never calls FBA directly; LangGraph in v2 owns all phase transitions.
+LangGraph in v2 owns all phase transitions between literature search and FBA.
 
 ### 2. Human-in-the-loop at every major boundary
 
@@ -115,7 +115,7 @@ When **no GEM matches**, the pipeline does **not** stop — it switches to the *
 
 ### 4. Nebius as single LLM provider
 
-All LLM calls go through Nebius Token Factory (OpenAI-compatible). Model selection is env-driven via `NEBIUS_MODEL` and optional `mindbrew_v2/config/models.yaml` per role (intake, parser, biomni).
+All LLM calls go through Nebius Token Factory (OpenAI-compatible). Model selection is env-driven via `NEBIUS_MODEL` and optional `mindbrew_v2/config/models.yaml` per role (intake, parser).
 
 ### 5. v2 is a greenfield rewrite
 
@@ -123,7 +123,7 @@ All LLM calls go through Nebius Token Factory (OpenAI-compatible). Model selecti
 
 ### 6. Offline mode for dev and CI
 
-Set `BREWMIND_OFFLINE=true` to run with deterministic fixtures — no Nebius, Biomni, or live FBA calls. Used by the eval harness and unit tests.
+Set `BREWMIND_OFFLINE=true` to run with deterministic fixtures — no Nebius or live FBA calls. Used by the eval harness and unit tests.
 
 ### 7. No Docker required for MVP
 
@@ -142,7 +142,7 @@ flowchart TD
     ticket[Submit ticket] --> cp1{CP1 Spec}
     cp1 -->|revise| intake[Intake / clarifier]
     intake --> cp1
-    cp1 -->|proceed| lit[Biomni literature search]
+    cp1 -->|proceed| lit[Literature pathway search]
     lit --> cp2{CP2 Pathways}
     cp2 -->|revise| lit
     cp2 -->|proceed| branch{GEM in registry?}
@@ -161,7 +161,7 @@ flowchart TD
 | Step | Checkpoint | FBA branch | No-GEM branch |
 |------|------------|------------|---------------|
 | 1 | **CP1 — Spec** | Parsed `ResearchBrief` + validation mode badge | same |
-| 2 | **CP2 — Pathways** | 3–7 Biomni pathway candidates; user selects | same |
+| 2 | **CP2 — Pathways** | 3–7 pathway candidates; user selects | same |
 | 3 | **CP3 / CP3b — Plan** | GEM, scenario, reactions, knockouts | Enzymes, gene suggestions, citations, gaps |
 | 4 | **CP4 — Results** | Ranked pass/fail, flux, bottlenecks | skipped |
 | 5 | **CP5 — Report** | CRO-ready markdown: worked / didn't / recommendations | same (literature tier labeled) |
@@ -189,14 +189,18 @@ brewmind/
 │   │   └── models.yaml       # Per-role model overrides
 │   ├── phases/
 │   │   ├── intake.py         # Ticket → ResearchBrief
-│   │   ├── biomni.py         # Literature search phase
+│   │   ├── biomni.py         # Literature search phase (LLM)
 │   │   ├── formalize.py      # PathwayCandidate → FBA payloads
 │   │   ├── literature_plan.py
 │   │   ├── report.py         # Outcome report generator
 │   │   └── checkpoints.py    # HITL helpers
 │   ├── tools/
-│   │   ├── biomni_client.py  # Biomni A1 adapter + parser
-│   │   └── fba_client.py     # find_ids + score_pathway wrapper
+│   │   ├── literature_client.py      # RAG literature pathway search
+│   │   ├── literature_retrieval.py   # Retrieval orchestrator
+│   │   ├── lamin_client.py           # Lamin/bionty ontologies + public datasets
+│   │   ├── pubmed_search.py          # PubMed E-utilities search
+│   │   ├── crossref_search.py        # Crossref works search
+│   │   └── fba_client.py             # find_ids + score_pathway wrapper
 │   ├── graph.py              # LangGraph definition
 │   ├── models.py             # Pydantic state models
 │   ├── demo_tickets.py       # Ticket 1–3 demo briefs
@@ -233,13 +237,17 @@ brewmind/
 
 ## External engines
 
-### Biomni (literature)
+### Literature search (RAG)
 
-- Entry point: `A1.go(prompt)` via `mindbrew_v2/tools/biomni_client.py`
-- Input: formatted `ResearchBrief` prompt (pathway identification only — no yield prediction)
-- Output: free-text → structured `PathwayCandidate[]` via Nebius JSON extraction
-- Install: `pip install git+https://github.com/snap-stanford/Biomni.git@main` (large conda env recommended)
-- Dev shortcut: `expected_data_lake_files=[]` skips ~11 GB datalake download
+- Entry point: `search_pathways()` via [`mindbrew_v2/tools/literature_client.py`](mindbrew_v2/tools/literature_client.py)
+- Flow: build queries from `ResearchBrief` → retrieve evidence → inject into LLM prompt → structured `PathwayCandidate[]`
+- **Retrieval sources:**
+  - [Lamin/bionty](https://docs.lamin.ai/introduction) — Pathway, Organism, Gene ontologies + public dataset metadata (`laminlabs/cellxgene`, etc.)
+  - **PubMed** — NCBI E-utilities (`esearch` + abstract fetch)
+  - **Crossref** — DOI works search for biochemistry papers
+- Lamin indexes ontologies and omics datasets, **not** PubMed papers — both are used together for grounding
+- Optional deps: `uv sync --extra literature` installs `bionty` + `lamindb` for Lamin; PubMed/Crossref work with core `httpx` only
+- Set `LITERATURE_RETRIEVAL_ENABLED=false` to fall back to LLM-only (no retrieval calls)
 
 ### FBA_Analysis (validation)
 
@@ -252,7 +260,7 @@ brewmind/
 ### Nebius Token Factory (LLM)
 
 - Base URL: `https://api.tokenfactory.nebius.com/v1/`
-- Used for: intake/clarifier, PathwayCandidate parser, Biomni `default_config`
+- Used for: intake/clarifier, PathwayCandidate parser, literature search
 - Get key: [tokenfactory.nebius.com](https://tokenfactory.nebius.com)
 
 ---
@@ -353,9 +361,15 @@ Copy `.env.example` → `.env`. All variables below are **required** for the Pyt
 | `NEBIUS_MODEL` | LLM model (e.g. `deepseek-ai/DeepSeek-V4-Pro`) |
 | `NEBIUS_BASE_URL` | Nebius API base URL (e.g. `https://api.tokenfactory.nebius.com/v1/`) |
 | `BREWMIND_OFFLINE` | `true` = fixtures only, no external API calls |
-| `BIOMNI_DATA_PATH` | Biomni datalake path |
 | `FBA_PYTHON` | Python executable for FBA subprocess |
 | `MAX_REVISIONS` | Max human revision cycles per session |
+| `LITERATURE_RETRIEVAL_ENABLED` | `true` = RAG retrieval before LLM pathway extraction (default) |
+| `LAMIN_PUBLIC_DBS` | Comma-separated public Lamin DBs (default `laminlabs/cellxgene`) |
+| `LITERATURE_MAX_ONTOLOGY_HITS` | Max bionty ontology hits per query (default `5`) |
+| `LITERATURE_MAX_ARTIFACT_HITS` | Max Lamin artifact hits per DB (default `5`) |
+| `LITERATURE_MAX_PUBMED_HITS` | Max PubMed papers per query (default `8`) |
+| `LITERATURE_MAX_CROSSREF_HITS` | Max Crossref works per query (default `5`) |
+| `LITERATURE_CONTEXT_MAX_CHARS` | Max chars of retrieved context in LLM prompt (default `8000`) |
 | `API_URL` | Backend URL for Next.js SSR (default `http://127.0.0.1:8000`) |
 | `NEXT_PUBLIC_API_URL` | Browser API base (default `/api` — proxied, avoids CORS) |
 | `CORS_ORIGINS` | Optional comma-separated extra CORS origins for direct API access |
@@ -387,7 +401,7 @@ BREWMIND_OFFLINE=true uv run python -m mindbrew_v2.eval.run_eval
 # Single phase
 BREWMIND_OFFLINE=true uv run python -m mindbrew_v2.eval.run_eval --phase intake
 
-# Live (requires Nebius + optionally Biomni)
+# Live (requires Nebius)
 uv run python -m mindbrew_v2.eval.run_eval --live
 ```
 
@@ -417,7 +431,7 @@ Copy a case block in `mindbrew_v2/eval/gold/cases.yaml`, update `id`, `input`, a
 
 ### Environment separation (production)
 
-Biomni and FBA_Analysis may need **separate conda envs** due to package conflicts. v2 can invoke them via subprocess (`FBA_PYTHON`) while the orchestrator runs in the lightweight uv venv.
+FBA_Analysis may need a **separate conda env** due to package conflicts. v2 invokes it via subprocess (`FBA_PYTHON`) while the orchestrator runs in the lightweight uv venv.
 
 ---
 
@@ -427,7 +441,7 @@ Biomni and FBA_Analysis may need **separate conda envs** due to package conflict
 |---|----------------|----------------|
 | Status | Frozen prototype | Active development |
 | Imports | Never imported by v2 | Standalone package |
-| Scope | Early intake sketch | Full pipeline: Biomni → FBA → blueprint |
+| Scope | Early intake sketch | Full pipeline: literature → FBA → blueprint |
 
 **Hard rule:** no `from mindbrew_v1 import …` anywhere in v2, api, or web.
 
@@ -440,4 +454,5 @@ Biomni and FBA_Analysis may need **separate conda envs** due to package conflict
 | `ModuleNotFoundError: psycopg2` | Project uses **psycopg v3**. Use `postgresql+psycopg://…` in `DATABASE_URL`, or let the API auto-normalize bare `postgresql://`. Run `uv sync --extra dev`. |
 | `OPTIONS /sessions` 400 | CORS preflight failed. Set `NEXT_PUBLIC_API_URL=/api` in `.env` and restart Next.js so the browser uses the same-origin proxy. |
 | Session stuck on "running" | Check API logs; ensure Postgres is reachable and `DATABASE_URL` is correct. |
+| Stream log appears frozen during literature search | Long steps emit heartbeats every `PROGRESS_HEARTBEAT_INTERVAL_SEC` (default 15s). LLM and retrieval substeps log progress lines — wait for the stale-activity banner or check API logs. |
 | No LLM responses | Verify `NEBIUS_API_KEY`. For local dev without keys, set `BREWMIND_OFFLINE=true`. |

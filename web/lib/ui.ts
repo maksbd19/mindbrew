@@ -52,11 +52,14 @@ export function statusChipClass(status: string): string {
 
 export function eventColorClass(type: string, level?: string): string {
   if (type === "error" || level === "error") return "text-danger";
+  if (level === "warning") return "text-warning";
   if (type === "log") return "text-muted-light";
+  if (type === "heartbeat") return "text-gray-500 italic";
   if (type === "node_start") return "text-accent";
   if (type === "node_end" || type === "step_complete") return "text-success";
   if (type === "awaiting_user") return "text-warning";
   if (type === "decision_accepted") return "text-purple-300";
+  if (type === "action_rejected") return "text-danger";
   return "text-muted";
 }
 

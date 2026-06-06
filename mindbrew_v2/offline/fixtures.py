@@ -143,5 +143,5 @@ def _report_extract(text: str) -> dict[str, Any]:
         "what_worked": "Wax ester FAR+WS pathway shows strongest literature and FBA support.",
         "what_didnt": "Fatty alcohol-only route lacks emollient match to dimethicone profile.",
         "recommendations": "Proceed with FAR+WS in Y. lipolytica; knock out β-oxidation genes.",
-        "appendix": "Biomni provenance: literature + KEGG. Model: iYLI647.",
+        "appendix": "Literature provenance: literature + KEGG. Model: iYLI647.",
     }

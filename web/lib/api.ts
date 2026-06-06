@@ -31,14 +31,18 @@ export type StepRecord = {
 
 export type StreamEvent = {
   type: string;
+  seq?: number;
+  ts?: string;
   step_id?: string;
   node_id?: string;
   content?: string;
   level?: string;
+  phase?: string;
   artifact?: Record<string, unknown>;
   summary?: string;
   message?: string;
   action?: string;
+  notes?: string;
 };
 
 export async function listSessions(): Promise<Session[]> {
@@ -87,7 +91,7 @@ export async function retrySession(id: string): Promise<Session> {
   return res.json();
 }
 
-export async function getSessionEvents(id: string, afterSeq = 0): Promise<(StreamEvent & { seq: number })[]> {
+export async function getSessionEvents(id: string, afterSeq = 0): Promise<StreamEvent[]> {
   const res = await fetch(`${API_URL}/sessions/${id}/events?after_seq=${afterSeq}`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to load session events");
   return res.json();

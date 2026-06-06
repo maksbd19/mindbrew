@@ -22,11 +22,15 @@ def formalize_pathways(
     candidates: list[PathwayCandidate],
     gem_override: str | None = None,
 ) -> tuple[GemProfile | None, list[ScorePathwayPayload], list[str]]:
+    from mindbrew_v2.progress import log
+
+    log(f"Formalizing {len(candidates)} pathway(s) for FBA…")
     selection = select_gem(brief, override_gem_id=gem_override)
     if selection.gem is None:
         return None, [], ["No GEM available — use literature pathway branch"]
 
     gem = selection.gem
+    log(f"Selected GEM {gem.gem_id} ({gem.model_ref})")
     find_ids = run_find_ids(gem.model_ref)
     payloads: list[ScorePathwayPayload] = []
     skipped: list[str] = []
@@ -38,6 +42,7 @@ def formalize_pathways(
         else:
             skipped.append(f"{cand.id}: could not map enzymes to model reactions")
 
+    log(f"Formalization complete: {len(payloads)} payload(s), {len(skipped)} skipped")
     return gem, payloads, skipped
 
 

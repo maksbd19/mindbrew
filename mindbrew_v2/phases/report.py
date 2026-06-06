@@ -38,6 +38,9 @@ def generate_report(
     literature_plan: LiteraturePathwayPlan | None = None,
     revision_notes: str | None = None,
 ) -> OutcomeReport:
+    from mindbrew_v2.progress import log
+
+    log("Generating outcome report…")
     primary = next((c for c in candidates if c.id == primary_pathway_id), candidates[0] if candidates else None)
 
     fba_summary = ""
@@ -136,6 +139,7 @@ Literature plan:
 {references}
 """
 
+    log("Outcome report generated")
     return OutcomeReport(
         ticket_summary=ticket_summary,
         validation_mode=validation_mode,

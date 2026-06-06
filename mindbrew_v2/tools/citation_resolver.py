@@ -50,7 +50,29 @@ def resolve_citation(citation: Citation) -> Citation:
 
 
 def resolve_citations(citations: list[Citation]) -> list[Citation]:
-    return [resolve_citation(c) for c in citations]
+    if not citations:
+        return []
+
+    from mindbrew_v2.progress import log
+
+    log(f"Validating {len(citations)} citation(s)…")
+    resolved: list[Citation] = []
+    counts = {"verified": 0, "unverified": 0, "invalid": 0}
+
+    for index, citation in enumerate(citations, start=1):
+        item = resolve_citation(citation)
+        resolved.append(item)
+        counts[item.validation_status] = counts.get(item.validation_status, 0) + 1
+        if index % 5 == 0 or index == len(citations):
+            log(f"Citations progress: {index}/{len(citations)}")
+
+    log(
+        "Citations: "
+        f"{counts.get('verified', 0)} verified, "
+        f"{counts.get('unverified', 0)} unverified, "
+        f"{counts.get('invalid', 0)} invalid"
+    )
+    return resolved
 
 
 def _normalize_doi(doi: str | None) -> str | None:
@@ -136,7 +158,7 @@ def _resolve_pmid(pmid: str, base: dict) -> Citation:
                 return _fallback(doi=base.get("doi"), pmid=pmid, data=base, status="invalid")
 
             title = record.get("title", base.get("title", "")).rstrip(".")
-            authors = ", ".join(record.get("authors", [])[:5])
+            authors = _format_pubmed_authors(record.get("authors", []))
             year = (record.get("pubdate") or "")[:4]
             journal = record.get("fulljournalname") or record.get("source") or ""
             doi = _normalize_doi(record.get("elocationid", "").replace("doi: ", "") if record.get("elocationid") else base.get("doi"))
@@ -187,6 +209,24 @@ def _format_authors(authors: list[dict]) -> str:
         if family:
             names.append(f"{family}, {given}".strip(", "))
     return "; ".join(names)
+
+
+def _format_pubmed_authors(authors: list) -> str:
+    names: list[str] = []
+    for author in authors[:5]:
+        if isinstance(author, str):
+            names.append(author)
+            continue
+        if isinstance(author, dict):
+            name = author.get("name")
+            if name:
+                names.append(str(name))
+                continue
+            given = author.get("given", "")
+            family = author.get("family", "") or author.get("lastname", "")
+            if family or given:
+                names.append(f"{family} {given}".strip())
+    return ", ".join(names)
 
 
 def _extract_year(item: dict) -> str:

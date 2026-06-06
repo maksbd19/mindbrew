@@ -35,3 +35,30 @@ def test_resolve_citations_batch():
     assert len(citations) == 2
     assert citations[0].validation_status == "verified"
     assert citations[1].validation_status == "invalid"
+
+
+def test_resolve_pmid_with_dict_authors():
+    from unittest.mock import MagicMock, patch
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "result": {
+            "99999": {
+                "title": "Wax ester production in yeast.",
+                "authors": [{"name": "Smith J"}, {"name": "Doe A"}],
+                "pubdate": "2018 Jan",
+                "fulljournalname": "Biotechnology Journal",
+                "articleids": [{"idtype": "doi", "value": "10.1002/bit.26067"}],
+            }
+        }
+    }
+
+    with patch("httpx.Client") as mock_client:
+        mock_client.return_value.__enter__.return_value.get.return_value = mock_response
+        with patch("mindbrew_v2.tools.citation_resolver.is_offline", return_value=False):
+            c = resolve_citation(Citation(pmid="99999", title="Placeholder"))
+
+    assert c.validation_status == "verified"
+    assert c.authors == "Smith J, Doe A"
+    assert c.doi == "10.1002/bit.26067"

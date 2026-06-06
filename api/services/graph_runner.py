@@ -6,6 +6,7 @@ import asyncio
 import logging
 import threading
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import Any
 
 from langgraph.types import Command
@@ -116,16 +117,26 @@ def _initial_state(session_id: str, raw_brief: str) -> dict:
 
 async def _iter_graph_stream(session_id: str, graph_input: Any, config: dict) -> AsyncIterator[tuple[str, Any]]:
     """Run sync graph.stream in a worker thread; yield progress events and graph chunks."""
-    from mindbrew_v2.progress import reset_progress_emitter, set_progress_emitter
+    from mindbrew_v2.progress import get_current_node, heartbeat, reset_progress_emitter, set_progress_emitter
+    from mindbrew_v2.settings import get_settings
 
     registry = get_run_registry()
     cancel = registry.register(session_id)
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
     graph = get_graph()
+    interval = get_settings().progress_heartbeat_interval_sec
+    stop_heartbeat = threading.Event()
+
+    def heartbeat_loop() -> None:
+        while not stop_heartbeat.wait(interval):
+            _, label = get_current_node()
+            heartbeat(label=f"Still running: {label}" if label else "Still working…")
 
     def worker() -> None:
         token = set_progress_emitter(lambda evt: loop.call_soon_threadsafe(queue.put_nowait, ("progress", evt)))
+        hb = threading.Thread(target=heartbeat_loop, daemon=True)
+        hb.start()
         try:
             for chunk in graph.stream(graph_input, config):
                 if cancel.is_set():
@@ -136,6 +147,8 @@ async def _iter_graph_stream(session_id: str, graph_input: Any, config: dict) ->
         except Exception as exc:
             loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
         finally:
+            stop_heartbeat.set()
+            hb.join(timeout=1.0)
             reset_progress_emitter(token)
 
     thread = threading.Thread(target=worker, daemon=True)
@@ -201,8 +214,19 @@ async def _emit_awaiting_user(
 
 async def _handle_progress(session_id: str, db, event: dict) -> dict:
     """Persist a live progress/log event and return it for SSE."""
-    append_stream_event(db, session_id, event["type"], event)
-    return event
+    row = append_stream_event(db, session_id, event["type"], event)
+    return _enrich_event(event, row.seq, row.created_at)
+
+
+def _enrich_event(event: dict, seq: int | None = None, created_at: datetime | None = None) -> dict:
+    enriched = dict(event)
+    if seq is not None:
+        enriched["seq"] = seq
+    if created_at is not None:
+        enriched["ts"] = created_at.astimezone(UTC).isoformat()
+    elif "ts" not in enriched:
+        enriched["ts"] = datetime.now(UTC).isoformat()
+    return enriched
 
 
 async def _handle_chunk(session_id: str, chunk: dict, db, graph, config: dict) -> dict | None:
