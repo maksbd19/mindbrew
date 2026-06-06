@@ -55,8 +55,8 @@ flowchart TB
     end
 
     subgraph fba [Validation — FBA_Analysis]
-        findids[find_ids.py]
-        score[score_pathway]
+        findids[find_ids.build_report]
+        score[fba_tool.score_pathway]
     end
 
     subgraph infra [Infrastructure]
@@ -85,7 +85,7 @@ flowchart TB
 | **API** | FastAPI + SSE | Sessions, graph execution, checkpoint resume |
 | **Agent** | LangGraph + Pydantic | Phase graph, typed artifacts, HITL interrupts |
 | **Literature** | Nebius LLM (structured extraction) | Pathway suggestions, papers, citations |
-| **Validation** | [FBA_Analysis](https://github.com/yanglu12/FBA_Analysis) | `score_pathway()` on GEM; bottlenecks, calibration tiers |
+| **Validation** | [FBA_Analysis](https://github.com/yanglu12/FBA_Analysis) | COBRApy FBA via direct import; real GEM IDs, bottlenecks, calibration tiers |
 | **LLM** | [Nebius Token Factory](https://docs.tokenfactory.nebius.com/) | OpenAI-compatible API for intake, parsing, literature search |
 | **Store** | PostgreSQL | App sessions + LangGraph checkpoints |
 
@@ -96,7 +96,7 @@ flowchart TB
 ### 1. Two engines, one orchestrator
 
 - **Nebius LLM** handles literature pathway hypothesis generation via structured extraction.
-- **FBA_Analysis** owns flux balance validation.
+- **FBA_Analysis** owns flux balance validation (COBRApy, imported directly from `vendor/FBA_Analysis/`).
 - **Brewmind** owns intake, formalization (pathway biochemistry → FBA payloads), ranking interpretation, HITL gates, and report assembly.
 
 LangGraph in v2 owns all phase transitions between literature search and FBA.
@@ -123,7 +123,7 @@ All LLM calls go through Nebius Token Factory (OpenAI-compatible). Model selecti
 
 ### 6. Offline mode for dev and CI
 
-Set `BREWMIND_OFFLINE=true` to run with deterministic fixtures — no Nebius or live FBA calls. Used by the eval harness and unit tests.
+Set `BREWMIND_OFFLINE=true` to run with deterministic fixtures — no Nebius or live FBA calls. FBA steps use in-process stubs in `fba_client.py` (not the vendor engine). Used by the eval harness and unit tests.
 
 ### 7. No Docker required for MVP
 
@@ -162,17 +162,20 @@ flowchart TD
 |------|------------|------------|---------------|
 | 1 | **CP1 — Spec** | Parsed `ResearchBrief` + validation mode badge | same |
 | 2 | **CP2 — Pathways** | 3–7 pathway candidates; user selects | same |
-| 3 | **CP3 / CP3b — Plan** | GEM, scenario, reactions, knockouts | Enzymes, gene suggestions, citations, gaps |
+| 3 | **CP3 / CP3b — Plan** | GEM, scenario, FAR/WS reactions with model metabolite IDs, knockouts | Enzymes, gene suggestions, citations, gaps |
 | 4 | **CP4 — Results** | Ranked pass/fail, flux, bottlenecks | skipped |
 | 5 | **CP5 — Report** | CRO-ready markdown: worked / didn't / recommendations | same (literature tier labeled) |
 
 **Mandatory FBA workflow** (when GEM matched):
 
 ```
-select_gem(brief)           → model_ref from registry
-find_ids.py {model_ref}     → metabolite/reaction IDs (never skip)
-score_pathway(...)          → calibration + bottlenecks
+select_gem(brief)                    → model_ref + scenario from registry
+find_ids.build_report(model_ref)     → real metabolite/reaction IDs (never skip)
+formalize_pathways(...)              → PathwayCandidate → ScorePathwayPayload
+score_pathway(payload)               → flux, yield, bottlenecks, calibration
 ```
+
+Formalization lives in [`mindbrew_v2/phases/formalize.py`](mindbrew_v2/phases/formalize.py) and [`mindbrew_v2/phases/fba_payloads.py`](mindbrew_v2/phases/fba_payloads.py). It maps literature pathway enzymes (e.g. FAR + WS for wax ester) onto model-resolved IDs from `find_ids` — e.g. `odecoa_c`, `EX_ocdcea_LPAREN_e_RPAREN_`, peroxisomal `ACOAO8p` knockouts. See [`vendor/FBA_Analysis/FBA_TOOL_CONTRACT.md`](vendor/FBA_Analysis/FBA_TOOL_CONTRACT.md).
 
 ---
 
@@ -191,6 +194,7 @@ brewmind/
 │   │   ├── intake.py         # Ticket → ResearchBrief
 │   │   ├── biomni.py         # Literature search phase (LLM)
 │   │   ├── formalize.py      # PathwayCandidate → FBA payloads
+│   │   ├── fba_payloads.py   # Wax-ester FAR/WS stoichiometry from find_ids IDs
 │   │   ├── literature_plan.py
 │   │   ├── report.py         # Outcome report generator
 │   │   └── checkpoints.py    # HITL helpers
@@ -200,7 +204,7 @@ brewmind/
 │   │   ├── lamin_client.py           # Lamin/bionty ontologies + public datasets
 │   │   ├── pubmed_search.py          # PubMed E-utilities search
 │   │   ├── crossref_search.py        # Crossref works search
-│   │   └── fba_client.py             # find_ids + score_pathway wrapper
+│   │   └── fba_client.py             # Direct import wrapper for find_ids + fba_tool
 │   ├── graph.py              # LangGraph definition
 │   ├── models.py             # Pydantic state models
 │   ├── demo_tickets.py       # Ticket 1–3 demo briefs
@@ -225,7 +229,7 @@ brewmind/
 │   │   └── sessions/[id]/    # Step wizard
 │   ├── components/           # StepSidebar, StreamLog, ArtifactView, ReviseDialog
 │   └── lib/api.ts
-├── vendor/FBA_Analysis/      # FBA engine (git submodule; offline stubs included)
+├── vendor/FBA_Analysis/      # FBA engine from yanglu12/FBA_Analysis (git submodule)
 ├── tests/
 ├── pyproject.toml
 ├── uv.lock
@@ -251,11 +255,37 @@ brewmind/
 
 ### FBA_Analysis (validation)
 
-- Entry point: `score_pathway()` in `vendor/FBA_Analysis/fba_tool.py`
-- Preflight: `find_ids.py {model_ref} --json` — **always run before scoring**
-- MVP model: **iYLI647** (*Y. lipolytica*)
-- Contract: see `vendor/FBA_Analysis/FBA_TOOL_CONTRACT.md`
-- Init submodule: `git submodule update --init vendor/FBA_Analysis`
+[FBA_Analysis](https://github.com/yanglu12/FBA_Analysis) is vendored under [`vendor/FBA_Analysis/`](vendor/FBA_Analysis/) and called via **direct Python import** (no separate conda env or subprocess).
+
+| Component | Role |
+|-----------|------|
+| [`find_ids.py`](vendor/FBA_Analysis/find_ids.py) | `build_report(model_ref)` — SBML preflight + metabolite/reaction ID resolution |
+| [`fba_tool.py`](vendor/FBA_Analysis/fba_tool.py) | `score_pathway(...)` — FBA scoring, bottlenecks, calibration |
+| [`fba_client.py`](mindbrew_v2/tools/fba_client.py) | Brewmind wrapper; offline stubs when `BREWMIND_OFFLINE=true` |
+| [`fba_payloads.py`](mindbrew_v2/phases/fba_payloads.py) | Builds `ScorePathwayPayload` from find_ids + pathway enzymes |
+
+**Setup:**
+
+```bash
+git submodule update --init vendor/FBA_Analysis   # real code + iYLI647.xml
+uv sync --extra fba                               # cobra, python-libsbml, optlang
+```
+
+**MVP model:** **iYLI647** (*Y. lipolytica*) with literature-calibrated scenarios under `vendor/FBA_Analysis/scenarios/`.
+
+**Contract:** [`vendor/FBA_Analysis/FBA_TOOL_CONTRACT.md`](vendor/FBA_Analysis/FBA_TOOL_CONTRACT.md) — always run `build_report` before `score_pathway`; never invent metabolite IDs.
+
+**Verify live ID resolution** (requires `--extra fba` and real vendor files):
+
+```bash
+uv run python -c "
+import sys; sys.path.insert(0, 'vendor/FBA_Analysis')
+from find_ids import build_report
+r = build_report('vendor/FBA_Analysis/iYLI647.xml', [])
+print(r['recommended']['carbon_source_rxn'])
+"
+# Expected: EX_ocdcea_LPAREN_e_RPAREN_  (not the offline stub EX_ole_e)
+```
 
 ### Nebius Token Factory (LLM)
 
@@ -312,6 +342,7 @@ At any checkpoint (or after a failed/interrupted step), use **Restart step** or 
 - Node.js 18+ (for web UI)
 - PostgreSQL (local instance — no Docker required)
 - Nebius API key (optional if using offline mode)
+- FBA optional extra (`uv sync --extra fba`) for live flux validation — not needed when `BREWMIND_OFFLINE=true`
 
 ### Install and run
 
@@ -319,7 +350,8 @@ At any checkpoint (or after a failed/interrupted step), use **Restart step** or 
 cp .env.example .env
 # Edit DATABASE_URL, NEBIUS_API_KEY, etc.
 
-uv sync --extra dev
+uv sync --extra dev --extra fba
+git submodule update --init vendor/FBA_Analysis
 
 createdb brewmind          # if the database doesn't exist
 uv run alembic upgrade head
@@ -336,16 +368,25 @@ Open [http://localhost:3000](http://localhost:3000) → **New session** → past
 ### Using uv
 
 ```bash
-uv sync --extra dev          # install deps into .venv from uv.lock
-uv run <command>             # run without activating venv
-source .venv/bin/activate    # optional: activate venv
+uv sync --extra dev --extra fba   # dev tools + FBA (cobra) for live validation
+uv sync --extra dev               # sufficient for offline mode / CI
+uv run <command>                  # run without activating venv
+source .venv/bin/activate         # optional: activate venv
 ```
+
+Optional dependency groups:
+
+| Extra | Installs | When needed |
+|-------|----------|-------------|
+| `dev` | pytest, ruff | Tests and linting |
+| `fba` | cobra, python-libsbml, optlang | Live FBA scoring (CP3–CP4) |
+| `literature` | bionty, lamindb | Lamin ontology/dataset retrieval |
 
 ### Alternative: pip
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev,fba]"
 ```
 
 ---
@@ -361,7 +402,6 @@ Copy `.env.example` → `.env`. All variables below are **required** for the Pyt
 | `NEBIUS_MODEL` | LLM model (e.g. `deepseek-ai/DeepSeek-V4-Pro`) |
 | `NEBIUS_BASE_URL` | Nebius API base URL (e.g. `https://api.tokenfactory.nebius.com/v1/`) |
 | `BREWMIND_OFFLINE` | `true` = fixtures only, no external API calls |
-| `FBA_PYTHON` | Python executable for FBA subprocess |
 | `MAX_REVISIONS` | Max human revision cycles per session |
 | `LITERATURE_RETRIEVAL_ENABLED` | `true` = RAG retrieval before LLM pathway extraction (default) |
 | `LAMIN_PUBLIC_DBS` | Comma-separated public Lamin DBs (default `laminlabs/cellxgene`) |
@@ -429,9 +469,15 @@ Add a scenario YAML under `vendor/FBA_Analysis/scenarios/` and reference it in t
 
 Copy a case block in `mindbrew_v2/eval/gold/cases.yaml`, update `id`, `input`, and `assertions`. Fixture JSON lives in `mindbrew_v2/eval/fixtures/`.
 
-### Environment separation (production)
+### Update FBA_Analysis vendor
 
-FBA_Analysis may need a **separate conda env** due to package conflicts. v2 invokes it via subprocess (`FBA_PYTHON`) while the orchestrator runs in the lightweight uv venv.
+The upstream repo is tracked as a git submodule. To pull latest:
+
+```bash
+git submodule update --remote vendor/FBA_Analysis
+uv sync --extra fba
+uv run pytest tests/test_formalize.py -v   # integration test checks real ID resolution
+```
 
 ---
 
@@ -456,3 +502,6 @@ FBA_Analysis may need a **separate conda env** due to package conflicts. v2 invo
 | Session stuck on "running" | Check API logs; ensure Postgres is reachable and `DATABASE_URL` is correct. |
 | Stream log appears frozen during literature search | Long steps emit heartbeats every `PROGRESS_HEARTBEAT_INTERVAL_SEC` (default 15s). LLM and retrieval substeps log progress lines — wait for the stale-activity banner or check API logs. |
 | No LLM responses | Verify `NEBIUS_API_KEY`. For local dev without keys, set `BREWMIND_OFFLINE=true`. |
+| CP3 FBA plan shows stub IDs (`EX_ole_e`, `FAR_rxn`) | Run `git submodule update --init vendor/FBA_Analysis` and confirm `vendor/FBA_Analysis/iYLI647.xml` is ~2 MB SBML (not a text placeholder). Install FBA deps: `uv sync --extra fba`. Set `BREWMIND_OFFLINE=false`. |
+| `ImportError: cobra` or FBA falls back to offline stub | Run `uv sync --extra fba`. Restart the API after installing. |
+| `vendor/FBA_Analysis contains offline stubs` in logs | Submodule not initialized — run `git submodule update --init vendor/FBA_Analysis`. |

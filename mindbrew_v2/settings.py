@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     nebius_model: str
     nebius_base_url: str
     brewmind_offline: bool
-    fba_python: str
+    fba_python: str = "python"  # deprecated; FBA uses direct import when --extra fba installed
     max_revisions: int
     literature_retrieval_enabled: bool = True
     lamin_public_dbs: str = "laminlabs/cellxgene"

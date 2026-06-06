@@ -27,6 +27,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+fba = [
+    "cobra>=0.29",
+    "python-libsbml>=5.20",
+    "optlang>=1.8",
+]
 literature = [
     "bionty>=1.0",
     "lamindb>=1.0",
@@ -43,6 +48,9 @@ packages = ["mindbrew_v2"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: tests that require live FBA deps and vendor model files",
+]
 
 [tool.ruff]
 line-length = 100

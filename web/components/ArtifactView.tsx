@@ -60,7 +60,16 @@ export default function ArtifactView({
           pathway_id: string;
           model_ref?: string;
           scenario?: string;
-          candidate_reactions?: Array<{ id: string; name: string; gene_associations?: string[] }>;
+          carbon_source_rxn?: string;
+          product_metabolite?: string;
+          knockouts?: string[];
+          substrate_moles_per_product?: number;
+          candidate_reactions?: Array<{
+            id: string;
+            name: string;
+            stoichiometry?: Record<string, number>;
+            gene_associations?: string[];
+          }>;
           source_citations?: import("@/lib/bioLinks").Citation[];
         }>) ?? []}
         skipped={artifact.skipped as string[] | undefined}

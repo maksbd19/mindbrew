@@ -29,9 +29,23 @@ import {
   statusChipClass,
 } from "@/lib/ui";
 
-function lastError(events: StreamEvent[]): string | null {
+/** Recovery markers — errors before these are stale and should not show in the banner. */
+const ERROR_RECOVERY_TYPES = new Set([
+  "step_restart_requested",
+  "step_restart",
+  "session_retry",
+  "decision_accepted",
+  "awaiting_user",
+  "step_complete",
+  "interrupted",
+  "user_resume",
+]);
+
+function activeStreamError(events: StreamEvent[]): string | null {
   for (let i = events.length - 1; i >= 0; i--) {
-    if (events[i].type === "error" && events[i].message) return events[i].message!;
+    const evt = events[i];
+    if (evt.type === "error" && evt.message) return evt.message;
+    if (ERROR_RECOVERY_TYPES.has(evt.type)) return null;
   }
   return null;
 }
@@ -184,7 +198,7 @@ export default function SessionDetailPage() {
     (session?.status === "awaiting_user" ||
       session?.status === "failed" ||
       session?.status === "interrupted");
-  const streamError = lastError(events);
+  const streamError = restarting ? null : activeStreamError(events);
   const activePhase = activePhaseFromEvents(events);
 
   async function handleInterrupt() {
@@ -216,6 +230,9 @@ export default function SessionDetailPage() {
     try {
       const started = await restartSessionStep(sessionId, stepId);
       applySession(started);
+      setEvents((prev) =>
+        mergeEvents(prev, [{ type: "step_restart_requested", step_id: stepId }])
+      );
 
       for (let i = 0; i < 180; i++) {
         await syncEvents();

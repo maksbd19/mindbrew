@@ -17,6 +17,8 @@ const TYPE_LABELS: Record<string, string> = {
   interrupted: "stop",
   user_resume: "resume",
   session_retry: "retry",
+  step_restart: "restart",
+  step_restart_requested: "restart",
   action_rejected: "rejected",
   awaiting_user: "awaiting",
   error: "error",

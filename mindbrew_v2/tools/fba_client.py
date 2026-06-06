@@ -1,9 +1,7 @@
-"""FBA_Analysis client — find_ids + score_pathway."""
+"""FBA_Analysis client — find_ids + score_pathway via direct import."""
 
 from __future__ import annotations
 
-import json
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -14,11 +12,33 @@ from mindbrew_v2.models import (
     FBAValidationResult,
     ScorePathwayPayload,
 )
-from mindbrew_v2.settings import get_settings, is_offline
+from mindbrew_v2.settings import is_offline
 from mindbrew_v2.tools.citation_resolver import resolve_citations
 from mindbrew_v2.tools.confidence import build_calibration_rationale, build_verdict_rationale
 
 VENDOR_ROOT = Path(__file__).resolve().parents[2] / "vendor" / "FBA_Analysis"
+
+
+def _is_vendor_stub() -> bool:
+    find_ids_path = VENDOR_ROOT / "find_ids.py"
+    if not find_ids_path.exists():
+        return True
+    return "Offline find_ids stub" in find_ids_path.read_text()
+
+
+def _fba_imports() -> tuple[Any, Any]:
+    if _is_vendor_stub():
+        raise ImportError(
+            "vendor/FBA_Analysis contains offline stubs. "
+            "Run: git submodule update --init vendor/FBA_Analysis"
+        )
+    vendor = str(VENDOR_ROOT)
+    if vendor not in sys.path:
+        sys.path.insert(0, vendor)
+    from find_ids import build_report
+    from fba_tool import score_pathway as sp
+
+    return build_report, sp
 
 
 def run_find_ids(model_ref: str) -> dict[str, Any]:
@@ -32,19 +52,18 @@ def run_find_ids(model_ref: str) -> dict[str, Any]:
     log(f"FBA find_ids running for {model_ref}…")
     started = time.perf_counter()
 
-    find_ids_script = VENDOR_ROOT / "find_ids.py"
-    if not find_ids_script.exists():
-        return _offline_find_ids()
-
-    settings = get_settings()
-    cmd = [settings.fba_python, str(find_ids_script), model_ref, "--json"]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False)
-        if result.returncode == 0 and result.stdout.strip():
+        build_report, _ = _fba_imports()
+        report = build_report(model_ref, [])
+        if report.get("status") == "ok":
             log_timing(f"FBA find_ids ({model_ref})", time.perf_counter() - started)
-            return json.loads(result.stdout)
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
-        pass
+            return report
+        log(f"FBA find_ids preflight failed: {report.get('message', report)}", level="warning")
+    except ImportError as exc:
+        log(str(exc), level="error")
+    except Exception as exc:
+        log(f"FBA find_ids error: {exc}", level="warning")
+
     log("FBA find_ids failed; using offline stub", level="warning")
     return _offline_find_ids()
 
@@ -60,35 +79,20 @@ def score_pathway(payload: ScorePathwayPayload) -> FBAValidationResult:
     log(f"FBA score_pathway running for {payload.pathway_id}…")
     started = time.perf_counter()
 
-    fba_script = VENDOR_ROOT / "fba_tool.py"
-    if not fba_script.exists():
-        return _offline_score(payload)
-
-    settings = get_settings()
-    payload_json = json.dumps(_payload_to_fba_dict(payload))
-    cmd = [
-        settings.fba_python,
-        "-c",
-        f"""
-import json, sys
-sys.path.insert(0, {str(VENDOR_ROOT)!r})
-from fba_tool import score_pathway as sp
-payload = json.loads({payload_json!r})
-print(json.dumps(sp(**payload)))
-""",
-    ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, check=False)
-        if result.returncode == 0 and result.stdout.strip():
-            data = json.loads(result.stdout)
-            parsed = _parse_fba_result(payload.pathway_id, data)
-            log_timing(
-                f"FBA score_pathway ({payload.pathway_id}, {parsed.status})",
-                time.perf_counter() - started,
-            )
-            return parsed
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
-        pass
+        _, sp = _fba_imports()
+        data = sp(**_payload_to_fba_dict(payload))
+        parsed = _parse_fba_result(payload.pathway_id, data)
+        log_timing(
+            f"FBA score_pathway ({payload.pathway_id}, {parsed.status})",
+            time.perf_counter() - started,
+        )
+        return parsed
+    except ImportError as exc:
+        log(str(exc), level="error")
+    except Exception as exc:
+        log(f"FBA score_pathway error for {payload.pathway_id}: {exc}", level="warning")
+
     log(f"FBA score_pathway failed for {payload.pathway_id}; using offline stub", level="warning")
     return _offline_score(payload)
 
@@ -220,13 +224,19 @@ def _parse_literature_refs(calibration: dict) -> list[Citation]:
 
 def _offline_find_ids() -> dict[str, Any]:
     return {
+        "status": "ok",
         "recommended": {
             "carbon_source_rxn": "EX_ole_e",
-            "product_metabolite": "wax_ester_c",
+            "oleoyl_coa_metabolite": "odecoa_c",
+            "nadph_metabolite": "nadph_c",
+            "nadp_metabolite": "nadp_c",
+            "coa_metabolite": "coa_c",
         },
-        "gene_alias_resolution": {
-            "recommended_knockouts": ["ACOAO8p", "ACOAO4p", "POX1"],
-        },
+        "peroxisomal_acyl_coa_oxidases": [
+            {"id": "ACOAO8p", "name": "octadecenoyl-CoA oxidase (peroxisomal)"},
+            {"id": "ACOAO4p", "name": "acyl-CoA oxidase (peroxisomal)"},
+        ],
+        "gene_alias_resolution": {},
     }
 
 

@@ -21,7 +21,7 @@ gems:
         plant_oil: wax_ester_oleate_n_limited.yaml
         vegetable_oil: wax_ester_oleate_n_limited.yaml
         glucose: iyli647_glucose_validation.yaml
-        linoleate: wax_ester_linoleate_n_limited.yaml
+        linoleate: wax_ester_oleate_n_limited.yaml
     priority: 10
     enabled: true
 
