@@ -1,0 +1,8 @@
+# Wax ester from linoleate — substrate extension stub
+feedstock: linoleate
+carbon_source: EX_lnl_e
+medium: minimal
+nitrogen_limited: true
+notes: |
+  Composition proxy for plant oils rich in linoleic acid (sunflower, safflower).
+  Full SBML exchange reaction mapping requires FBA_Analysis extension.

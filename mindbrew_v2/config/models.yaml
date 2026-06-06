@@ -1,0 +1,4 @@
+# Optional per-role model overrides. When unset, all roles use NEBIUS_MODEL from .env.
+# intake: deepseek-ai/DeepSeek-V4-Pro
+# parser: deepseek-ai/DeepSeek-V4-Pro
+# biomni: deepseek-ai/DeepSeek-V4-Pro

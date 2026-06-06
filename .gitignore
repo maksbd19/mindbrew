@@ -1,0 +1,17 @@
+.env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+node_modules/
+web/.next/
+web/out/
+data/biomni/
+mindbrew_v2/eval/reports/
+*.db
+.DS_Store

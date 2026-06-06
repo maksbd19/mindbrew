@@ -1,0 +1,5 @@
+# Wax ester production from oleate under nitrogen limitation
+feedstock: oleate
+carbon_source: EX_ole_e
+medium: minimal
+nitrogen_limited: true

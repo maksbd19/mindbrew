@@ -1,0 +1,46 @@
+gems:
+  - id: iyli647
+    model_ref: vendor/FBA_Analysis/iYLI647.xml
+    organism_aliases:
+      - Yarrowia lipolytica
+      - Y. lipolytica
+      - oleaginous yeast
+    product_classes:
+      - wax_ester
+      - lipid
+      - fatty_alcohol
+    feedstock_classes:
+      - plant_oil
+      - oleate
+      - vegetable_oil
+      - triglyceride_oil
+    scenarios:
+      default: vendor/FBA_Analysis/scenarios/wax_ester_oleate_n_limited.yaml
+      by_feedstock:
+        oleate: wax_ester_oleate_n_limited.yaml
+        plant_oil: wax_ester_oleate_n_limited.yaml
+        vegetable_oil: wax_ester_oleate_n_limited.yaml
+        glucose: iyli647_glucose_validation.yaml
+        linoleate: wax_ester_linoleate_n_limited.yaml
+    priority: 10
+    enabled: true
+
+  - id: iml1515
+    model_ref: vendor/FBA_Analysis/models/iML1515.xml
+    organism_aliases:
+      - Escherichia coli
+      - E. coli
+    product_classes:
+      - fatty_acid
+      - terpenoid
+    feedstock_classes:
+      - glucose
+    scenarios:
+      default: vendor/FBA_Analysis/scenarios/exploratory_no_literature.yaml
+    priority: 5
+    enabled: false
+
+  - id: auto
+    model_ref: null
+    description: Biomni/clarifier suggests organism; registry picks best match
+    enabled: false

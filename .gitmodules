@@ -1,0 +1,3 @@
+[submodule "vendor/FBA_Analysis"]
+	path = vendor/FBA_Analysis
+	url = https://github.com/yanglu12/FBA_Analysis.git

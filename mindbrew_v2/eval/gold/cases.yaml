@@ -1,0 +1,180 @@
+cases:
+  - id: ticket1_spec_v1
+    phase: intake
+    ticket: ticket1
+    description: Silicone replacement brief extracts wax-ester-relevant spec
+    input:
+      raw_brief: |
+        We're looking for a natural replacement for silicones in our premium
+        haircare line. We want something that delivers the same smoothness and frizz
+        control as dimethicone, but is fully natural and sustainably sourced. We'd like
+        to make it from a common plant oil through fermentation. Can you figure out
+        the best way to produce it and what it would take to manufacture?
+    assertions:
+      - type: field_contains
+        field: target_function
+        values: [silicone, frizz, smooth, dimethicone]
+      - type: field_in
+        field: feedstock
+        values: [plant_oil, vegetable_oil, triglyceride_oil]
+    requires_live_api: false
+    weight: 1.0
+
+  - id: ticket2_spec_v1
+    phase: intake
+    ticket: ticket2
+    description: Microbiome brief extracts scalp/microbiome target
+    input:
+      raw_brief: |
+        We're developing a scalp-health ingredient that supports a balanced scalp
+        microbiome and helps with dandruff. We want something fermentation-derived
+        that can calm the scalp, strengthen its barrier, and keep the microbiome in check.
+    assertions:
+      - type: field_contains
+        field: target_function
+        values: [microbiome, scalp, dandruff]
+    requires_live_api: false
+    weight: 1.0
+
+  - id: ticket3_spec_v1
+    phase: intake
+    ticket: ticket3
+    description: Cuticle brief extracts barrier lipid target
+    input:
+      raw_brief: |
+        We're creating a repair treatment for damaged hair that rebuilds the cuticle
+        and helps it hold moisture. We'd like a natural, skin-identical lipid ingredient
+        made from a plant oil.
+    assertions:
+      - type: field_contains
+        field: target_function
+        values: [cuticle, moisture, barrier, lipid]
+      - type: field_in
+        field: feedstock
+        values: [plant_oil, vegetable_oil, triglyceride_oil]
+    requires_live_api: false
+    weight: 1.0
+
+  - id: reject_non_biocatalysis_v1
+    phase: intake
+    ticket: synthetic
+    description: Non-biocatalysis query rejected or clarified
+    input:
+      raw_brief: Help me debug this Python script for web scraping.
+    assertions:
+      - type: gatekeeper_verdict_in
+        values: [REJECT, CLARIFY]
+    requires_live_api: false
+    weight: 1.0
+
+  - id: ticket1_pathway_enzymes_v1
+    phase: pathways
+    ticket: ticket1
+    description: Candidates include FAR and WS enzymes
+    input:
+      raw_brief: |
+        Natural silicone replacement from plant oil fermentation for haircare smoothness.
+    assertions:
+      - type: any_candidate_has_enzymes
+        values: [far]
+      - type: any_candidate_has_enzymes
+        values: [ws]
+      - type: min_citation_count
+        value: 1
+    requires_live_api: false
+    weight: 1.0
+
+  - id: gem_select_iyli647_v1
+    phase: formalize
+    ticket: ticket1
+    description: select_gem returns iyli647 for Y. lipolytica plant oil ticket
+    input:
+      raw_brief: |
+        Natural silicone replacement from plant oil fermentation in Yarrowia lipolytica.
+    assertions:
+      - type: gem_id_equals
+        value: iyli647
+    requires_live_api: false
+    weight: 1.0
+
+  - id: gem_not_found_v1
+    phase: e2e
+    ticket: ticket2
+    description: No GEM for microbiome ticket — literature branch
+    input:
+      raw_brief: |
+        Scalp microbiome ingredient for dandruff via fermentation.
+    assertions:
+      - type: validation_mode_in
+        values: [literature]
+      - type: pathways_not_empty
+    requires_live_api: false
+    weight: 2.0
+
+  - id: lit_plan_has_gene_suggestions_v1
+    phase: e2e
+    ticket: ticket2
+    description: Literature plan includes gene suggestions
+    input:
+      raw_brief: |
+        Scalp microbiome postbiotic ingredient via fermentation.
+    assertions:
+      - type: lit_plan_has_genes
+    requires_live_api: false
+    weight: 1.5
+
+  - id: ticket1_formalize_wax_v1
+    phase: formalize
+    ticket: ticket1
+    description: FAR+WS maps to valid score payloads
+    input:
+      brief_ref: briefs/ticket1_parsed.json
+      pathways_ref: pathways/ticket1_candidates.json
+    assertions:
+      - type: payload_valid
+    requires_live_api: false
+    weight: 1.0
+
+  - id: ticket1_fba_pass_v1
+    phase: fba
+    ticket: ticket1
+    description: FAR+WS with knockouts passes offline FBA
+    input:
+      score_pathway_payload_ref: payloads/wax_ester_oleate.json
+    assertions:
+      - type: fba_status
+        value: optimal
+      - type: fba_verdict_in
+        values: [pass, marginal]
+    requires_live_api: false
+    weight: 1.0
+
+  - id: ticket1_fba_no_ko_v1
+    phase: fba
+    ticket: ticket1
+    description: Without knockouts yields marginal or fail
+    input:
+      score_pathway_payload_ref: payloads/wax_ester_no_ko.json
+    assertions:
+      - type: fba_status
+        value: optimal
+      - type: fba_verdict_in
+        values: [marginal, fail]
+    requires_live_api: false
+    weight: 1.0
+
+  - id: ticket1_e2e_v1
+    phase: e2e
+    ticket: ticket1
+    description: Ticket 1 full pipeline produces report sections
+    input:
+      raw_brief: |
+        Natural silicone replacement from plant oil fermentation for premium haircare.
+        Smoothness and frizz control like dimethicone.
+    assertions:
+      - type: validation_mode_in
+        values: [fba]
+      - type: report_has_sections
+        values: [what worked, what didn't, recommendations]
+    requires_live_api: false
+    weight: 3.0

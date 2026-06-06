@@ -1,0 +1,14 @@
+{
+  "pathway_id": "pw_wax_ester_far_ws",
+  "model_ref": "vendor/FBA_Analysis/iYLI647.xml",
+  "scenario": "vendor/FBA_Analysis/scenarios/wax_ester_oleate_n_limited.yaml",
+  "carbon_source_rxn": "EX_ole_e",
+  "candidate_reactions": [
+    {"id": "FAR_rxn", "name": "FAR", "stoichiometry": {"fatty_acyl_coa": -1, "fatty_alcohol": 1}, "gene_associations": ["FAR"]},
+    {"id": "WS_rxn", "name": "WS", "stoichiometry": {"fatty_alcohol": -1, "fatty_acyl_coa": -1, "wax_ester_c": 1}, "gene_associations": ["WS"]}
+  ],
+  "product_metabolite": "wax_ester_c",
+  "knockouts": [],
+  "substrate_moles_per_product": 1.0,
+  "objective": "product"
+}

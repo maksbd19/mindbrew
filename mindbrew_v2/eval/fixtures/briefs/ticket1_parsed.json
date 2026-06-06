@@ -1,0 +1,11 @@
+{
+  "ticket_id": "ticket1",
+  "raw_brief": "Natural silicone replacement from plant oil fermentation.",
+  "organism": ["Yarrowia lipolytica"],
+  "feedstock": {"name": "plant oil", "class": "plant_oil"},
+  "target": {"name": "wax ester", "class": "wax_ester"},
+  "target_function": "silicone replacement, frizz control",
+  "constraints": ["natural"],
+  "tasks": ["pathway identification"],
+  "selected_gem_id": null
+}

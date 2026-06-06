@@ -1,0 +1,25 @@
+# Eval case schema documentation
+# See gold/cases.yaml for examples
+
+case_fields:
+  id: unique case identifier
+  phase: intake | pathways | formalize | fba | e2e
+  ticket: ticket1 | ticket2 | ticket3 | synthetic
+  description: human-readable summary
+  input: raw_brief, brief_ref, or score_pathway_payload_ref
+  expected: optional ground truth summary
+  assertions: list of machine-checkable rules
+  requires_live_api: bool
+  weight: float
+
+assertion_types:
+  - field_contains
+  - field_in
+  - gatekeeper_verdict_in
+  - any_candidate_has_enzymes
+  - min_citation_count
+  - fba_status
+  - fba_verdict_in
+  - report_has_sections
+  - validation_mode_in
+  - gem_id_equals

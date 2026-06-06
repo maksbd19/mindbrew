@@ -1,0 +1,27 @@
+[
+  {
+    "id": "pw_wax_ester_far_ws",
+    "name": "Wax ester via FAR + WS",
+    "description": "Fatty acyl-CoA reduced to alcohol then esterified",
+    "reaction_steps": [
+      {
+        "step_number": 1,
+        "description": "Fatty acyl-CoA to fatty alcohol",
+        "enzyme_name": "FAR",
+        "gene_names": ["FAR"],
+        "heterologous": true
+      },
+      {
+        "step_number": 2,
+        "description": "Wax ester formation",
+        "enzyme_name": "WS",
+        "gene_names": ["WS"],
+        "heterologous": true
+      }
+    ],
+    "enzymes": ["FAR", "WS"],
+    "citations": [{"doi": "10.1002/bit.26067", "title": "Wax ester in Y. lipolytica", "url": "https://doi.org/10.1002/bit.26067", "validation_status": "verified"}],
+    "confidence": "strong",
+    "confidence_rationale": "Direct literature precedent with reported titer in Y. lipolytica.",
+  }
+]
