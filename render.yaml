@@ -1,4 +1,9 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
+databases:
+  - name: brewmind-db
+    plan: free
+    databaseName: brewmind
+
 services:
   - type: web
     name: brewmind-api
@@ -14,7 +19,9 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.11"
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: brewmind-db
+          property: connectionString
       - key: NEBIUS_API_KEY
         sync: false
       - key: NEBIUS_MODEL
@@ -26,4 +33,28 @@ services:
       - key: MAX_REVISIONS
         value: "5"
       - key: CORS_ORIGINS
-        sync: false
+        fromService:
+          type: web
+          name: brewmind-web
+          envVarKey: RENDER_EXTERNAL_URL
+
+  - type: web
+    name: brewmind-web
+    runtime: node
+    plan: free
+    rootDir: web
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: API_URL
+        fromService:
+          type: web
+          name: brewmind-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: brewmind-api
+          envVarKey: RENDER_EXTERNAL_URL

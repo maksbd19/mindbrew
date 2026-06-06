@@ -37,7 +37,7 @@ app.add_middleware(
     allow_origins=_cors_origins,
     allow_origin_regex=(
         r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?|"
-        r"https://.*\.vercel\.app"
+        r"https://.*\.(vercel\.app|onrender\.com)"
     ),
     allow_credentials=True,
     allow_methods=["*"],
