@@ -1,30 +1,45 @@
 #!/usr/bin/env bash
-# Render full-stack deploy helper for Brewmind.
+# Deploy Brewmind Python API on Render (Supabase Postgres, Vercel frontend).
 set -o errexit -o pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-echo "==> Brewmind Render-only deployment"
+echo "==> Brewmind hybrid deploy: Render API + Supabase + Vercel web"
 echo
-echo "This repo uses render.yaml as a Blueprint with:"
-echo "  - brewmind-db   (Postgres, free tier — expires after 30 days)"
-echo "  - brewmind-api  (FastAPI + LangGraph)"
-echo "  - brewmind-web  (Next.js frontend)"
+echo "Architecture:"
+echo "  Supabase     Postgres (DATABASE_URL)"
+echo "  Render       brewmind-api (FastAPI + LangGraph)"
+echo "  Vercel       web/ (Next.js frontend)"
 echo
-echo "Steps:"
-echo "  1. Push main to GitHub (if not already)"
-echo "  2. Render Dashboard → New → Blueprint"
-echo "  3. Connect repo: https://github.com/maksbd19/mindbrew"
-echo "  4. Review services, then set secrets on brewmind-api:"
-echo "       NEBIUS_API_KEY, NEBIUS_MODEL, NEBIUS_BASE_URL"
-echo "  5. Apply Blueprint and wait for all three services to deploy"
+echo "Step 1 — Supabase"
+echo "  1. Create project at https://supabase.com"
+echo "  2. Settings → Database → Connection string → URI (Direct/Session, port 5432)"
+echo "  3. Copy URI for Render DATABASE_URL"
 echo
-echo "Verify after deploy:"
+echo "Step 2 — Render (Python API)"
+echo "  1. Render Dashboard → New → Blueprint"
+echo "  2. Connect repo: https://github.com/maksbd19/mindbrew"
+echo "  3. Set env vars on brewmind-api:"
+echo "       DATABASE_URL      Supabase URI"
+echo "       NEBIUS_API_KEY    from .env"
+echo "       NEBIUS_MODEL      e.g. deepseek-ai/DeepSeek-V4-Pro"
+echo "       NEBIUS_BASE_URL   https://api.tokenfactory.nebius.com/v1/"
+echo "       CORS_ORIGINS      set after Vercel deploy (e.g. https://your-app.vercel.app)"
+echo "  4. Pre-Deploy Command: leave empty (not on free tier)"
+echo "  5. Start Command: alembic upgrade head && uvicorn api.main:app --host 0.0.0.0 --port \$PORT"
+echo "  6. Apply Blueprint → wait for Live"
+echo
+echo "Step 3 — Verify API"
 echo "  curl https://brewmind-api.onrender.com/health"
-echo "  open https://brewmind-web.onrender.com"
+echo "  # expected: {\"status\":\"ok\"}"
 echo
-echo "Smoke test (once API URL is live):"
+echo "Step 4 — Vercel (frontend)"
+echo "  API_URL=https://brewmind-api.onrender.com ./scripts/deploy-vercel.sh"
+echo "  # Vercel Root Directory must be 'web'"
+echo "  # Then set CORS_ORIGINS on Render to your Vercel URL"
+echo
+echo "Smoke test:"
 echo "  API_URL=https://brewmind-api.onrender.com ./scripts/poc-smoke-test.sh"
 echo
 

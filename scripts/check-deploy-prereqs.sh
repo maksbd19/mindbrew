@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validate Brewmind POC deployment prerequisites.
+# Validate Brewmind hybrid deployment prerequisites.
 set -o errexit -o pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -14,6 +14,8 @@ fail() { echo "FAIL $*"; warn=$((warn + 1)); }
 echo "==> Code artifacts"
 [[ -f requirements.txt ]] && pass "requirements.txt" || fail "requirements.txt missing"
 [[ -f render.yaml ]] && pass "render.yaml" || fail "render.yaml missing"
+grep -q "alembic upgrade head && uvicorn" render.yaml && pass "render.yaml free-tier start command" || fail "render.yaml missing combined migrate+start command"
+grep -q "sync: false" render.yaml && pass "render.yaml external DATABASE_URL" || fail "render.yaml DATABASE_URL not sync:false"
 
 echo "==> Git"
 if git remote get-url origin &>/dev/null; then
@@ -22,27 +24,27 @@ else
   fail "no git remote — push to GitHub before Render/Vercel import"
 fi
 
-echo "==> Neon / Postgres"
-if [[ -f .env ]] && grep -qE '^DATABASE_URL=.*(neon\.tech|supabase\.co)' .env 2>/dev/null; then
-  pass "DATABASE_URL looks like managed Postgres"
-elif [[ -n "${DATABASE_URL:-}" ]] && [[ "$DATABASE_URL" == *neon.tech* || "$DATABASE_URL" == *supabase.co* ]]; then
-  pass "DATABASE_URL env looks like managed Postgres"
+echo "==> Supabase"
+if [[ -f .env ]] && grep -qE '^DATABASE_URL=.*supabase\.co' .env 2>/dev/null; then
+  pass "DATABASE_URL looks like Supabase"
+elif [[ -n "${DATABASE_URL:-}" ]] && [[ "$DATABASE_URL" == *supabase.co* ]]; then
+  pass "DATABASE_URL env looks like Supabase"
 else
-  fail "create Neon/Supabase project and set DATABASE_URL (see .env.example)"
+  fail "create Supabase project and set DATABASE_URL on Render (see .env.example)"
 fi
 
 echo "==> Render"
 if [[ -n "${RENDER_API_KEY:-}" ]]; then
   pass "RENDER_API_KEY set"
 else
-  fail "deploy via dashboard: New Web Service → connect repo → use render.yaml"
+  fail "deploy API: Render Dashboard → New → Blueprint → mindbrew repo"
 fi
 
 echo "==> Vercel"
 if vercel whoami &>/dev/null; then
   pass "vercel CLI authenticated ($(vercel whoami 2>/dev/null))"
 else
-  fail "run: vercel login"
+  fail "run: vercel login, then API_URL=https://... ./scripts/deploy-vercel.sh"
 fi
 
 echo "==> Summary: $ok passed, $warn need attention"
