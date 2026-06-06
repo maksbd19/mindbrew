@@ -14,7 +14,8 @@ fail() { echo "FAIL $*"; warn=$((warn + 1)); }
 echo "==> Code artifacts"
 [[ -f requirements.txt ]] && pass "requirements.txt" || fail "requirements.txt missing"
 [[ -f render.yaml ]] && pass "render.yaml" || fail "render.yaml missing"
-grep -q "alembic upgrade head && uvicorn" render.yaml && pass "render.yaml free-tier start command" || fail "render.yaml missing combined migrate+start command"
+grep -q "uvicorn api.main:app" render.yaml && pass "render.yaml uvicorn start command" || fail "render.yaml missing uvicorn start command"
+[[ -x scripts/run-migrations.sh ]] && pass "scripts/run-migrations.sh" || fail "scripts/run-migrations.sh missing"
 grep -q "sync: false" render.yaml && pass "render.yaml external DATABASE_URL" || fail "render.yaml DATABASE_URL not sync:false"
 
 echo "==> Git"
