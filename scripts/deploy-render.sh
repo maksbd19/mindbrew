@@ -14,7 +14,8 @@ echo "  Vercel       web/ (Next.js frontend)"
 echo
 echo "Step 1 — Supabase"
 echo "  1. Create project at https://supabase.com"
-echo "  2. Settings → Database → Connection string → URI (Direct/Session, port 5432)"
+echo "  2. Settings → Database → Connection string → Session pooler → URI (port 5432)"
+echo "     Use pooler host (*.pooler.supabase.com), NOT Direct — Render has no IPv6"
 echo "  3. Copy URI for Render DATABASE_URL"
 echo
 echo "Step 2 — Run migrations (once, before or after first deploy)"

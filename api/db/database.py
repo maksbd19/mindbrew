@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import socket
 from collections.abc import Generator
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -12,6 +14,26 @@ from mindbrew_v2.settings import get_settings
 
 _engine = None
 _SessionLocal = None
+
+
+def _postgres_connect_args(url: str) -> dict:
+    """Prefer IPv4 for managed Postgres (Render lacks reliable IPv6 to Supabase direct)."""
+    normalized = url.replace("postgresql+psycopg://", "postgresql://").replace(
+        "postgresql+psycopg2://", "postgresql://"
+    )
+    parsed = urlparse(normalized)
+    hostname = parsed.hostname
+    if not hostname or hostname in {"localhost", "127.0.0.1", "::1"}:
+        return {}
+    try:
+        infos = socket.getaddrinfo(
+            hostname, parsed.port or 5432, socket.AF_INET, socket.SOCK_STREAM
+        )
+    except OSError:
+        return {}
+    if not infos:
+        return {}
+    return {"hostaddr": infos[0][4][0]}
 
 
 def get_engine():
@@ -24,6 +46,10 @@ def get_engine():
             kwargs["connect_args"] = {"check_same_thread": False}
             if ":memory:" in url:
                 kwargs["poolclass"] = StaticPool
+        elif url.startswith("postgresql"):
+            connect_args = _postgres_connect_args(url)
+            if connect_args:
+                kwargs["connect_args"] = connect_args
         _engine = create_engine(url, **kwargs)
     return _engine
 
@@ -41,10 +67,20 @@ def psycopg_conn_string(url: str) -> str:
     """Strip SQLAlchemy driver suffix for raw psycopg / LangGraph PostgresSaver."""
     normalized = normalize_database_url(url)
     if normalized.startswith("postgresql+psycopg://"):
-        return "postgresql://" + normalized[len("postgresql+psycopg://") :]
-    if normalized.startswith("postgresql+"):
-        return "postgresql://" + normalized.split("://", 1)[1]
-    return normalized
+        conn = "postgresql://" + normalized[len("postgresql+psycopg://") :]
+    elif normalized.startswith("postgresql+"):
+        conn = "postgresql://" + normalized.split("://", 1)[1]
+    else:
+        conn = normalized
+
+    hostaddr = _postgres_connect_args(url).get("hostaddr")
+    if not hostaddr:
+        return conn
+
+    parsed = urlparse(conn)
+    query = parse_qs(parsed.query)
+    query["hostaddr"] = [hostaddr]
+    return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
 
 
 def get_session_factory():
