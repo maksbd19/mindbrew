@@ -1,0 +1,10 @@
+api/
+mindbrew_v2/
+requirements.txt
+render.yaml
+vendor/
+tests/
+scripts/
+alembic.ini
+pyproject.toml
+uv.lock
