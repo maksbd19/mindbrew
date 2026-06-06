@@ -19,7 +19,7 @@ from mindbrew_v2.progress import log, node_end, node_start
 from mindbrew_v2.tools.fba_client import rank_fba_results, score_pathway
 
 NODE_LABELS: dict[str, str] = {
-    "intake": "Parsing research brief (intake + gatekeeper)",
+    "intake": "Parsing research brief (intake + agent status)",
     "cp1_spec_review": "Spec review checkpoint",
     "biomni_search": "Literature pathway search (LLM)",
     "cp2_pathway_review": "Pathway selection checkpoint",

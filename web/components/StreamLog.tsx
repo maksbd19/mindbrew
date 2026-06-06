@@ -67,24 +67,51 @@ function lastEventAgeSec(events: StreamEvent[]): number | null {
   return null;
 }
 
+function latestEvent(events: StreamEvent[]): StreamEvent | null {
+  if (events.length === 0) return null;
+  return events[events.length - 1];
+}
+
+function LogLine({ e, truncate }: { e: StreamEvent; truncate?: boolean }) {
+  const label = TYPE_LABELS[e.type] || e.type;
+  const text = eventText(e);
+  const detail = e.type === "error" && e.detail?.trim() ? e.detail.trim() : null;
+  const ts = formatTimestamp(e.ts);
+
+  return (
+    <div className={cn("break-words", truncate && "truncate", eventColorClass(e.type, e.level))}>
+      {ts && <span className="mr-1.5 text-muted/60">[{ts}]</span>}
+      <span className="text-muted/70">[{label}]</span> {text}
+      {detail && !truncate && (
+        <pre className="mt-1.5 whitespace-pre-wrap rounded border border-border-subtle/60 bg-page/40 px-2 py-1.5 text-[11px] leading-relaxed text-muted-light">
+          {detail}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function LogContent({
   events,
   running,
   staleAge,
   showStaleBanner,
   className,
+  autoScroll = true,
 }: {
   events: StreamEvent[];
   running: boolean;
   staleAge: number | null;
   showStaleBanner: boolean;
   className?: string;
+  autoScroll?: boolean;
 }) {
   const bottom = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!autoScroll) return;
     bottom.current?.scrollIntoView({ behavior: "smooth" });
-  }, [events.length]);
+  }, [events.length, autoScroll]);
 
   return (
     <div className={cn("overflow-y-auto px-4 py-3 font-mono text-[12px] leading-relaxed sm:px-6", className)}>
@@ -100,21 +127,36 @@ function LogContent({
       {events.length === 0 && running && (
         <p className="m-0 text-muted">Agent started — waiting for first log line…</p>
       )}
-      {events.map((e, i) => {
-        const label = TYPE_LABELS[e.type] || e.type;
-        const text = eventText(e);
-        const ts = formatTimestamp(e.ts);
-        return (
-          <div
-            key={e.seq ?? i}
-            className={cn("mt-0.5 break-words", eventColorClass(e.type, e.level))}
-          >
-            {ts && <span className="mr-1.5 text-muted/60">[{ts}]</span>}
-            <span className="text-muted/70">[{label}]</span> {text}
-          </div>
-        );
-      })}
+      {events.map((e, i) => (
+        <div key={e.seq ?? i} className="mt-0.5">
+          <LogLine e={e} />
+        </div>
+      ))}
       <div ref={bottom} />
+    </div>
+  );
+}
+
+function LatestPreview({
+  events,
+  running,
+}: {
+  events: StreamEvent[];
+  running: boolean;
+}) {
+  const last = latestEvent(events);
+
+  if (!last) {
+    return (
+      <p className="m-0 truncate font-mono text-[12px] text-muted">
+        {running ? "Agent started — waiting for first log line…" : "Waiting for agent events…"}
+      </p>
+    );
+  }
+
+  return (
+    <div className="min-w-0 truncate font-mono text-[12px] leading-relaxed">
+      <LogLine e={last} truncate />
     </div>
   );
 }
@@ -122,14 +164,12 @@ function LogContent({
 export default function StreamLog({
   events,
   running = false,
-  column = false,
 }: {
   events: StreamEvent[];
   running?: boolean;
-  /** Render as a side-panel column (fills available height). */
-  column?: boolean;
 }) {
   const [, tick] = useState(0);
+  const [expanded, setExpanded] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -163,9 +203,10 @@ export default function StreamLog({
 
   const enterFullscreen = useCallback(() => setFullscreen(true), []);
   const exitFullscreen = useCallback(() => setFullscreen(false), []);
+  const toggleExpanded = useCallback(() => setExpanded((v) => !v), []);
 
   const header = (isFullscreen: boolean) => (
-    <div className="flex shrink-0 items-center gap-3 border-b border-border-subtle px-4 py-2.5">
+    <div className="flex shrink-0 items-center gap-2 border-b border-border-subtle px-4 py-2.5 sm:gap-3">
       <div className="flex min-w-0 items-center gap-2">
         <span className="text-[13px] font-semibold text-foreground">Agent log</span>
         {running && (
@@ -175,38 +216,49 @@ export default function StreamLog({
           </span>
         )}
       </div>
-      <span className="ml-auto text-[11px] text-muted">
+      <span className="hidden text-[11px] text-muted sm:inline">
         {events.length} event{events.length === 1 ? "" : "s"}
       </span>
-      <button
-        type="button"
-        onClick={isFullscreen ? exitFullscreen : enterFullscreen}
-        className={cn(btnSecondary, "relative z-10 h-7 shrink-0 px-2.5 text-[11px]")}
-        aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-      >
-        {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-      </button>
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        {!isFullscreen && (
+          <button
+            type="button"
+            onClick={toggleExpanded}
+            className={cn(btnSecondary, "h-7 px-2.5 text-[11px]")}
+            aria-expanded={expanded}
+            aria-label={expanded ? "Collapse log" : "Expand log"}
+          >
+            {expanded ? "Collapse" : "Expand"}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={isFullscreen ? exitFullscreen : enterFullscreen}
+          className={cn(btnSecondary, "h-7 px-2.5 text-[11px]")}
+          aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+        >
+          {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+        </button>
+      </div>
     </div>
   );
 
   const panel = (
-    <section
-      className={cn(
-        card,
-        "flex flex-col overflow-hidden",
-        column ? "h-full min-h-[280px] rounded-lg" : "w-full rounded-none border-x-0 border-b-0"
-      )}
-    >
+    <section className={cn(card, "flex w-full flex-col overflow-hidden rounded-lg")}>
       {header(false)}
-      <LogContent
-        events={events}
-        running={running}
-        staleAge={staleAge}
-        showStaleBanner={showStaleBanner}
-        className={cn(
-          column ? "min-h-0 flex-1" : running ? "h-72 sm:h-80" : "h-48 sm:h-56"
-        )}
-      />
+      {expanded ? (
+        <LogContent
+          events={events}
+          running={running}
+          staleAge={staleAge}
+          showStaleBanner={showStaleBanner}
+          className="h-[100px]"
+        />
+      ) : (
+        <div className="px-4 py-2.5 sm:px-6">
+          <LatestPreview events={events} running={running} />
+        </div>
+      )}
     </section>
   );
 

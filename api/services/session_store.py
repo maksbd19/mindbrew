@@ -72,6 +72,20 @@ def update_session_status(
     db.commit()
 
 
+def update_session_title(db: Session, session_id: str, title: str) -> SessionRow | None:
+    row = db.get(SessionRow, session_id)
+    if not row:
+        return None
+    cleaned = title.strip()
+    if not cleaned:
+        return row
+    row.title = cleaned[:255]
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
 def upsert_step(
     db: Session,
     session_id: str,

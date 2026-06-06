@@ -33,14 +33,14 @@ def run_intake(ticket: Ticket, revision_notes: str | None = None) -> ResearchBri
     if revision_notes:
         prompt += f"\n\nRevision feedback from reviewer:\n{revision_notes}"
 
-    log("Calling LLM to parse brief and run gatekeeper check…")
+    log("Calling LLM to parse brief and check agent status…")
     result = structured_extract(
         prompt,
         IntakeResult,
         system=INTAKE_SYSTEM,
         role="intake",
     )
-    log(f"Gatekeeper verdict: {result.gatekeeper_verdict}")
+    log(f"Agent status: {result.gatekeeper_verdict}")
 
     return ResearchBrief(
         ticket_id=ticket.id,

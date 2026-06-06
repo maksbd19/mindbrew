@@ -53,6 +53,7 @@ export type StreamEvent = {
   artifact?: Record<string, unknown>;
   summary?: string;
   message?: string;
+  detail?: string;
   action?: string;
   notes?: string;
 };
@@ -75,6 +76,26 @@ export async function listSessions(options?: {
 export async function getSession(id: string): Promise<Session> {
   const res = await fetch(`${API_URL}/sessions/${id}`, { cache: "no-store" });
   if (!res.ok) throw new Error("Session not found");
+  return res.json();
+}
+
+export async function updateSessionTitle(sessionId: string, title: string): Promise<Session> {
+  const res = await fetch(`${API_URL}/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error(await parseApiError(res, "Failed to update title"));
+  return res.json();
+}
+
+export async function suggestSessionTitle(sessionId: string): Promise<Session> {
+  const res = await fetch(`${API_URL}/sessions/${sessionId}/title/suggest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ force: false }),
+  });
+  if (!res.ok) throw new Error(await parseApiError(res, "Failed to generate title"));
   return res.json();
 }
 

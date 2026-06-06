@@ -23,7 +23,9 @@ from api.services.session_store import (
     get_stream_events,
     list_sessions,
     update_session_status,
+    update_session_title,
 )
+from api.services.title_inference import infer_session_title, is_auto_title
 from mindbrew_v2.models import HumanDecision, StepId
 from mindbrew_v2.phases.checkpoints import STEP_TO_CHECKPOINT
 
@@ -44,6 +46,14 @@ class DecideRequest(BaseModel):
     notes: str | None = None
     selected_pathway_ids: list[str] | None = None
     primary_pathway_id: str | None = None
+
+
+class UpdateSessionRequest(BaseModel):
+    title: str
+
+
+class SuggestTitleRequest(BaseModel):
+    force: bool = False
 
 
 def _session_summary_dict(row) -> dict[str, Any]:
@@ -148,7 +158,27 @@ async def create(body: CreateSessionRequest, db: Session = Depends(get_db)):
         },
     )
     _track_task(row.id, _run_graph_background(row.id, body.raw_brief))
+    if body.title is None:
+        asyncio.create_task(_infer_title_background(row.id, body.raw_brief))
     return _session_to_dict(row)
+
+
+async def _infer_title_background(session_id: str, raw_brief: str) -> None:
+    from api.db.database import get_session_factory
+
+    try:
+        title = await asyncio.to_thread(infer_session_title, raw_brief)
+    except Exception:
+        logger.exception("Failed to infer title for session %s", session_id)
+        return
+
+    db = get_session_factory()()
+    try:
+        row = get_session(db, session_id)
+        if row and is_auto_title(row.title, row.raw_brief):
+            update_session_title(db, session_id, title)
+    finally:
+        db.close()
 
 
 async def _run_graph_background(session_id: str, raw_brief: str):
@@ -177,6 +207,43 @@ def get_one(session_id: str, db: Session = Depends(get_db)):
     if not row:
         raise HTTPException(404, "Session not found")
     return _session_to_dict(row)
+
+
+@router.patch("/{session_id}")
+def update_one(session_id: str, body: UpdateSessionRequest, db: Session = Depends(get_db)):
+    row = get_session(db, session_id)
+    if not row:
+        raise HTTPException(404, "Session not found")
+    updated = update_session_title(db, session_id, body.title)
+    if not updated:
+        raise HTTPException(404, "Session not found")
+    return _session_to_dict(updated, session_id)
+
+
+@router.post("/{session_id}/title/suggest")
+async def suggest_title(
+    session_id: str,
+    body: SuggestTitleRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    row = get_session(db, session_id)
+    if not row:
+        raise HTTPException(404, "Session not found")
+
+    force = body.force if body else False
+    if not force and not is_auto_title(row.title, row.raw_brief):
+        return _session_to_dict(row, session_id)
+
+    try:
+        title = await asyncio.to_thread(infer_session_title, row.raw_brief)
+    except Exception as exc:
+        logger.exception("Failed to infer title for session %s", session_id)
+        raise HTTPException(502, "Could not generate title") from exc
+
+    updated = update_session_title(db, session_id, title)
+    if not updated:
+        raise HTTPException(404, "Session not found")
+    return _session_to_dict(updated, session_id)
 
 
 @router.post("/{session_id}/interrupt")
@@ -222,7 +289,12 @@ async def retry_failed(session_id: str, db: Session = Depends(get_db)):
     if session_id in _running:
         _reject_action(db, session_id, "session_retry", "Session is already running")
         raise HTTPException(409, "Session is already running")
-    update_session_status(db, session_id, "running")
+
+    error = graph_runner.validate_session_retry(session_id, db)
+    if error:
+        _reject_action(db, session_id, "session_retry", error)
+        raise HTTPException(409, error)
+
     append_stream_event(
         db,
         session_id,
@@ -230,6 +302,7 @@ async def retry_failed(session_id: str, db: Session = Depends(get_db)):
         {"type": "session_retry", "step_id": row.current_step, "content": "Retrying failed session"},
     )
     _track_task(session_id, _run_retry_background(session_id, row.raw_brief))
+    db.refresh(row)
     return _session_to_dict(row, session_id)
 
 
@@ -324,7 +397,6 @@ async def restart_step(session_id: str, step_id: str, db: Session = Depends(get_
         _reject_action(db, session_id, "step_restart_requested", "Agent is already processing")
         raise HTTPException(409, "Agent is already processing")
 
-    update_session_status(db, session_id, "running", current_step=step_id)
     append_stream_event(
         db,
         session_id,

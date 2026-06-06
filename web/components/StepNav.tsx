@@ -12,7 +12,7 @@ const STEPS = [
   { id: "cp5_report", label: "Report" },
 ];
 
-export default function StepSidebar({
+export default function StepNav({
   currentStep,
   completedSteps,
   onSelect,

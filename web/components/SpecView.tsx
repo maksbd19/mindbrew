@@ -1,5 +1,5 @@
 import { keggCompoundLink } from "@/lib/bioLinks";
-import { cn, link } from "@/lib/ui";
+import { link } from "@/lib/ui";
 import ArtifactPanel, { DetailRow } from "./ArtifactPanel";
 
 function formatOrganism(organism: unknown): string {
@@ -7,14 +7,6 @@ function formatOrganism(organism: unknown): string {
   if (typeof organism === "string") return organism;
   if (organism == null) return "—";
   return JSON.stringify(organism);
-}
-
-function gatekeeperTone(verdict: unknown): "success" | "warning" | "danger" | "neutral" {
-  const v = String(verdict || "").toUpperCase();
-  if (v === "PROCEED") return "success";
-  if (v === "CLARIFY") return "warning";
-  if (v === "REJECT") return "danger";
-  return "neutral";
 }
 
 export default function SpecView({
@@ -32,8 +24,6 @@ export default function SpecView({
   const target = brief.target as Record<string, unknown> | undefined;
   const feedstockLink = keggCompoundLink(feedstock?.kegg_id as string | undefined);
   const targetLink = keggCompoundLink(target?.kegg_id as string | undefined);
-  const gatekeeper = brief.gatekeeper_verdict;
-  const tone = gatekeeperTone(gatekeeper);
 
   return (
     <ArtifactPanel title="Research brief" subtitle="Parsed specification from your R&D ticket">
@@ -75,31 +65,6 @@ export default function SpecView({
           <span className="font-medium text-foreground">GEM selection: </span>
           {gemSelectionReason}
         </p>
-      )}
-
-      {gatekeeper != null && (
-        <div
-          className={cn(
-            "mt-4 rounded-md border px-3 py-2.5",
-            tone === "success" && "border-emerald-900/50 bg-emerald-950/20",
-            tone === "warning" && "border-amber-900/50 bg-amber-950/20",
-            tone === "danger" && "border-red-900/50 bg-red-950/20",
-            tone === "neutral" && "border-border-subtle bg-surface-raised"
-          )}
-        >
-          <span className="text-[12px] font-medium uppercase tracking-wide text-muted">Gatekeeper</span>
-          <p
-            className={cn(
-              "mt-1 text-[14px] font-semibold",
-              tone === "success" && "text-emerald-300",
-              tone === "warning" && "text-amber-300",
-              tone === "danger" && "text-red-300",
-              tone === "neutral" && "text-foreground"
-            )}
-          >
-            {String(gatekeeper)}
-          </p>
-        </div>
       )}
 
       {Array.isArray(brief.clarifying_questions) && brief.clarifying_questions.length > 0 && (

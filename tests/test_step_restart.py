@@ -97,6 +97,31 @@ def test_restore_prior_step_memory_from_db_rows():
     assert restored["primary_pathway_id"] == "p1"
 
 
+def test_cp2_restart_restores_brief_from_db_when_checkpoint_missing():
+    rows = [
+        _StepRow(
+            "cp1_spec",
+            {
+                "brief": {"ticket_id": "x", "raw_brief": "wax", "organism": ["Yarrowia lipolytica"]},
+                "validation_mode": "fba",
+            },
+        ),
+    ]
+    checkpoint_state = prepare_step_restart_state(
+        {
+            **_base_state("x"),
+            "brief": None,
+            "validation_mode": None,
+            "pathway_candidates": [{"id": "p1", "name": "Path A"}],
+        },
+        StepId.CP2_PATHWAYS,
+    )
+    restored = restore_prior_step_memory(checkpoint_state, StepId.CP2_PATHWAYS, rows)
+    assert restored["brief"]["organism"] == ["Yarrowia lipolytica"]
+    assert restored["validation_mode"] == "fba"
+    assert restored["pathway_candidates"] == []
+
+
 @pytest.mark.asyncio
 async def test_revise_routing_restarts_cp1_with_ticket_memory():
     graph = build_graph(checkpointer=MemorySaver())

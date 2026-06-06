@@ -13,11 +13,15 @@ import {
   retrySession,
   streamUrl,
   submitDecision,
+  suggestSessionTitle,
+  updateSessionTitle,
 } from "@/lib/api";
-import StepSidebar from "@/components/StepSidebar";
+import StepNav from "@/components/StepNav";
 import StreamLog, { activePhaseFromEvents } from "@/components/StreamLog";
+import SessionContextPanel from "@/components/SessionContextPanel";
+import EditableSessionTitle from "@/components/EditableSessionTitle";
 import ArtifactView from "@/components/ArtifactView";
-import ReviseDialog from "@/components/ReviseDialog";
+import StepDecisionActions from "@/components/StepDecisionActions";
 import {
   actionBar,
   btnPrimary,
@@ -25,7 +29,6 @@ import {
   card,
   cn,
   container,
-  pageSubtitle,
   statusChipClass,
 } from "@/lib/ui";
 import { formatStatusLabel } from "@/lib/format";
@@ -72,13 +75,13 @@ function proceedBlockReason(
   if (stepId !== "cp1_spec" || !artifact?.brief) return null;
   const brief = artifact.brief as { gatekeeper_verdict?: string; clarifying_questions?: string[] };
   if (brief.gatekeeper_verdict === "REJECT") {
-    return "Proceed is blocked: the gatekeeper rejected this brief as out of scope. Revise the brief or start a new session.";
+    return "Proceed is blocked: the agent rejected this brief as out of scope. Revise the brief or start a new session.";
   }
   if (brief.gatekeeper_verdict === "CLARIFY") {
     const qs = brief.clarifying_questions?.filter(Boolean) ?? [];
     return qs.length
       ? `Proceed is blocked until these are resolved: ${qs.join("; ")}`
-      : "Proceed is blocked: the gatekeeper needs more detail. Revise the brief first.";
+      : "Proceed is blocked: the agent needs more detail. Revise the brief first.";
   }
   return null;
 }
@@ -94,6 +97,7 @@ export default function SessionDetailPage() {
   const [deciding, setDeciding] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [pendingAction, setPendingAction] = useState<"proceed" | "revise" | "restart" | null>(null);
+  const [titleSuggesting, setTitleSuggesting] = useState(false);
   const lastSeqRef = useRef(0);
 
   const applySession = useCallback((s: Session, opts?: { followStep?: boolean }) => {
@@ -146,6 +150,22 @@ export default function SessionDetailPage() {
     refresh({ followStep: true });
     syncEvents().catch(() => {});
   }, [sessionId, refresh, syncEvents]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTitleSuggesting(true);
+    suggestSessionTitle(sessionId)
+      .then((s) => {
+        if (!cancelled) applySession(s);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setTitleSuggesting(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, applySession]);
 
   useEffect(() => {
     let es: EventSource | null = null;
@@ -252,7 +272,7 @@ export default function SessionDetailPage() {
           break;
         }
         if (s.status === "running" && !s.agent_active) {
-          setActionError("Agent stopped before finishing this step. Check the stream log below or use Restart step.");
+          setActionError("Agent stopped before finishing this step. Check the agent log above or use Restart step.");
           break;
         }
         await new Promise((resolve) => window.setTimeout(resolve, 1500));
@@ -268,13 +288,37 @@ export default function SessionDetailPage() {
 
   async function handleRetry() {
     setActionError("");
+    setRestarting(true);
+    setPendingAction("restart");
     try {
-      await retrySession(sessionId);
+      const started = await retrySession(sessionId);
+      applySession(started, { followStep: true });
       lastSeqRef.current = 0;
       setEvents([]);
-      await refresh();
+
+      for (let i = 0; i < 180; i++) {
+        await syncEvents();
+        const s = await refresh();
+        if (
+          s.status === "awaiting_user" ||
+          s.status === "completed" ||
+          s.status === "failed" ||
+          s.status === "interrupted"
+        ) {
+          break;
+        }
+        if (s.status === "running" && !s.agent_active) {
+          setActionError("Agent stopped before finishing this step. Check the agent log above or use Retry.");
+          break;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      }
     } catch (e) {
-      setActionError(String(e));
+      setActionError(e instanceof Error ? e.message : String(e));
+      await refresh();
+    } finally {
+      setRestarting(false);
+      setPendingAction(null);
     }
   }
 
@@ -306,7 +350,7 @@ export default function SessionDetailPage() {
           break;
         }
         if (s.status === "running" && !s.agent_active) {
-          setActionError("Agent stopped before finishing this step. Check the stream log below or use Retry.");
+          setActionError("Agent stopped before finishing this step. Check the agent log above or use Retry.");
           break;
         }
         await new Promise((resolve) => window.setTimeout(resolve, 1500));
@@ -320,6 +364,17 @@ export default function SessionDetailPage() {
     }
   }
 
+  async function handleTitleSave(title: string) {
+    setActionError("");
+    try {
+      const updated = await updateSessionTitle(sessionId, title);
+      applySession(updated);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+      throw e;
+    }
+  }
+
   const pathwayIds =
     artifact && "pathway_candidates" in artifact
       ? ((artifact.pathway_candidates as { id: string; name: string }[]) || []).map((p) => ({
@@ -329,6 +384,10 @@ export default function SessionDetailPage() {
       : [];
 
   const proceedBlocked = proceedBlockReason(viewStep, artifact);
+  const agentStatus =
+    artifact?.brief && typeof artifact.brief === "object"
+      ? ((artifact.brief as { gatekeeper_verdict?: string }).gatekeeper_verdict ?? null)
+      : null;
   const showDecisionPanel =
     session?.status === "awaiting_user" &&
     session.current_step === viewStep &&
@@ -346,38 +405,42 @@ export default function SessionDetailPage() {
 
   return (
     <div className="flex min-h-[calc(100dvh-3.5rem)] w-full flex-col overflow-x-hidden">
-      <div className={cn(container, "flex min-h-0 w-full flex-1 flex-col")}>
+      <div className={cn(container, "flex min-h-0 w-full flex-1 flex-col py-5")}>
         <div className="shrink-0">
           <Link href="/" className="text-[13px] text-muted transition-colors hover:text-accent">
             ← Back to sessions
           </Link>
-          <p className={cn(pageSubtitle, "mt-3 whitespace-pre-wrap")}>
-            {session?.raw_brief || "Loading…"}
-          </p>
-          <div className={cn(actionBar, "mt-3")}>
-            {session && (
-              <span className={statusChipClass(session.status)}>{formatStatusLabel(session.status)}</span>
-            )}
-            {showStop && (
-              <button type="button" className={btnSecondary} onClick={handleInterrupt}>
-                Stop agent
-              </button>
-            )}
-            {showResume && (
-              <button type="button" className={btnPrimary} onClick={handleResume}>
-                Resume
-              </button>
-            )}
-            {showHeaderRestart && (
-              <button type="button" className={btnSecondary} onClick={handleRestartStep} disabled={restarting}>
-                {restarting ? "Restarting…" : "Restart step"}
-              </button>
-            )}
-            {session?.status === "failed" && (
-              <button type="button" className={btnPrimary} onClick={handleRetry}>
-                Retry
-              </button>
-            )}
+          <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
+            <EditableSessionTitle
+              title={session?.title || ""}
+              suggesting={titleSuggesting}
+              onSave={handleTitleSave}
+            />
+            <div className={actionBar}>
+              {session && (
+                <span className={statusChipClass(session.status)}>{formatStatusLabel(session.status)}</span>
+              )}
+              {showStop && (
+                <button type="button" className={btnSecondary} onClick={handleInterrupt}>
+                  Stop agent
+                </button>
+              )}
+              {showResume && (
+                <button type="button" className={btnPrimary} onClick={handleResume}>
+                  Resume
+                </button>
+              )}
+              {showHeaderRestart && (
+                <button type="button" className={btnSecondary} onClick={handleRestartStep} disabled={restarting}>
+                  {restarting ? "Restarting…" : "Restart step"}
+                </button>
+              )}
+              {session?.status === "failed" && (
+                <button type="button" className={btnPrimary} onClick={handleRetry}>
+                  Retry
+                </button>
+              )}
+            </div>
           </div>
           {(streamError || actionError) && (
             <div className={cn(card, "mt-3 border-red-900/60 p-4 text-[13px] text-danger")}>
@@ -398,15 +461,19 @@ export default function SessionDetailPage() {
           )}
         </div>
 
-        <StepSidebar
-          currentStep={viewStep}
-          completedSteps={completedSteps}
-          onSelect={setViewStep}
-          validationMode={session?.validation_mode || null}
-        />
+        <div className="mt-3 shrink-0">
+          <StreamLog events={events} running={showStop || deciding || restarting} />
+        </div>
 
-        <div className="mt-6 grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <div className="min-h-0 min-w-0 max-w-full space-y-4 overflow-x-hidden overflow-y-auto pb-6 [scrollbar-gutter:stable]">
+        <div className="mt-4 grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="min-h-0 min-w-0 max-w-full space-y-4 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
+            <StepNav
+              currentStep={viewStep}
+              completedSteps={completedSteps}
+              onSelect={setViewStep}
+              validationMode={session?.validation_mode || null}
+            />
+
             {(showStop || deciding || restarting) && session && (
               <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted-light">
                 <span className={statusChipClass(session.status)}>{formatStatusLabel(session.status)}</span>
@@ -433,21 +500,26 @@ export default function SessionDetailPage() {
             <ArtifactView stepId={viewStep} artifact={artifact} />
 
             {showDecisionPanel && (
-              <ReviseDialog
+              <StepDecisionActions
                 showPathwaySelect={viewStep === "cp2_pathways"}
                 pathwayIds={pathwayIds}
+                agentStatus={agentStatus}
                 proceedDisabled={Boolean(proceedBlocked)}
                 proceedDisabledReason={proceedBlocked}
                 busy={deciding || restarting}
                 onRestart={handleRestartStep}
                 onProceed={(opts) => sendDecision("proceed", opts)}
-                onRevise={(notes) => sendDecision("revise", { notes })}
               />
             )}
           </div>
 
-          <aside className="flex min-h-[320px] min-w-0 flex-col lg:sticky lg:top-[4.5rem] lg:max-h-[calc(100dvh-5.5rem)] lg:min-h-0">
-            <StreamLog events={events} running={showStop || deciding || restarting} column />
+          <aside className="flex min-h-0 min-w-0 flex-col lg:sticky lg:top-[4.5rem] lg:max-h-[calc(100dvh-5.5rem)] lg:overflow-y-auto">
+            <SessionContextPanel
+              session={session}
+              showRevise={showDecisionPanel}
+              reviseBusy={deciding || restarting}
+              onRevise={(notes) => sendDecision("revise", { notes })}
+            />
           </aside>
         </div>
       </div>

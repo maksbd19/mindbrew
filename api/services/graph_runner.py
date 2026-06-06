@@ -14,6 +14,7 @@ from langgraph.types import Command
 from api.db.database import get_session_factory
 from api.services.run_registry import get_run_registry
 from api.services.session_store import append_stream_event, update_session_status, upsert_step
+from mindbrew_v2.errors import agent_error_event
 from mindbrew_v2.graph import build_graph
 from mindbrew_v2.models import HumanDecision, StepId, Ticket
 from mindbrew_v2.phases.checkpoints import (
@@ -278,12 +279,12 @@ def _decision_block_reason(checkpoint: str, action: str, state: dict) -> str | N
     verdict = brief.get("gatekeeper_verdict")
     if verdict == "REJECT":
         return (
-            "Cannot proceed: the gatekeeper rejected this brief as outside biocatalysis / "
+            "Cannot proceed: the agent rejected this brief as outside biocatalysis / "
             "fermentation scope. Revise the brief or start a new session."
         )
     if verdict == "CLARIFY":
         questions = brief.get("clarifying_questions") or []
-        base = "Cannot proceed: the gatekeeper needs clarification before continuing."
+        base = "Cannot proceed: the agent needs clarification before continuing."
         if questions:
             return base + " Open questions: " + "; ".join(questions)
         return base + " Revise the brief with more detail."
@@ -339,7 +340,7 @@ async def run_session_graph(session_id: str, raw_brief: str) -> AsyncIterator[di
         db.rollback()
         logger.exception("Session %s failed", session_id)
         update_session_status(db, session_id, "failed")
-        err = {"type": "error", "message": str(exc)}
+        err = agent_error_event(exc)
         append_stream_event(db, session_id, "error", err)
         yield err
     finally:
@@ -453,11 +454,25 @@ async def resume_session(session_id: str, decision: HumanDecision) -> AsyncItera
         db.rollback()
         logger.exception("Session %s resume failed", session_id)
         update_session_status(db, session_id, "failed")
-        err = {"type": "error", "message": str(exc)}
+        err = agent_error_event(exc)
         append_stream_event(db, session_id, "error", err)
         yield err
     finally:
         db.close()
+
+
+def validate_session_retry(session_id: str, db) -> str | None:
+    """Return an error message when a failed/interrupted session cannot be retried."""
+    from api.services.session_store import get_session
+
+    graph = get_graph()
+    config = {"configurable": {"thread_id": session_id}}
+    snapshot = graph.get_state(config)
+    row = get_session(db, session_id)
+    if snapshot.values or (row and row.steps):
+        step_id = row.current_step if row else StepId.CP1_SPEC.value
+        return validate_step_restart(session_id, step_id, db)
+    return None
 
 
 def validate_step_restart(session_id: str, step_id: str, db) -> str | None:
@@ -487,17 +502,16 @@ def _load_restart_state(session_id: str, step_id: StepId, raw_brief: str, db) ->
     """Load graph state for restart, restoring prior-step memory from DB if needed."""
     from api.services.session_store import get_session
 
-    graph = get_graph()
-    config = {"configurable": {"thread_id": session_id}}
-    snapshot = graph.get_state(config)
-    if snapshot.values:
-        return prepare_step_restart_state(dict(snapshot.values), step_id)
-
     row = get_session(db, session_id)
     if not row:
         return None
-    state = _initial_state(session_id, raw_brief)
-    return prepare_step_restart_state(restore_prior_step_memory(state, step_id, row.steps or []), step_id)
+
+    graph = get_graph()
+    config = {"configurable": {"thread_id": session_id}}
+    snapshot = graph.get_state(config)
+    base = dict(snapshot.values) if snapshot.values else _initial_state(session_id, raw_brief)
+    state = prepare_step_restart_state(base, step_id)
+    return restore_prior_step_memory(state, step_id, row.steps or [])
 
 
 async def restart_session_step(session_id: str, step_id: str) -> AsyncIterator[dict]:
@@ -578,7 +592,7 @@ async def restart_session_step(session_id: str, step_id: str) -> AsyncIterator[d
         db.rollback()
         logger.exception("Session %s step restart failed", session_id)
         update_session_status(db, session_id, "failed")
-        err = {"type": "error", "message": str(exc)}
+        err = agent_error_event(exc)
         append_stream_event(db, session_id, "error", err)
         yield err
     finally:
@@ -636,7 +650,7 @@ async def continue_session_graph(session_id: str) -> AsyncIterator[dict]:
         db.rollback()
         logger.exception("Session %s continue failed", session_id)
         update_session_status(db, session_id, "failed")
-        err = {"type": "error", "message": str(exc)}
+        err = agent_error_event(exc)
         append_stream_event(db, session_id, "error", err)
         yield err
     finally:

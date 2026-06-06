@@ -3,17 +3,30 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import yaml
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from mindbrew_v2.settings import get_settings, is_offline
+from mindbrew_v2.errors import StructuredExtractError
 
 T = TypeVar("T", bound=BaseModel)
+
+_ROLE_MAX_TOKENS: dict[str, int] = {
+    "parser": 16384,
+    "intake": 4096,
+}
+
+_JSON_RETRY_HINT = (
+    "Your previous response was invalid or incomplete JSON. "
+    "Return ONLY a single valid JSON object matching the schema. "
+    "No markdown fences or commentary. Keep arrays concise."
+)
 
 
 def _load_models_yaml() -> dict:
@@ -30,14 +43,51 @@ def get_model_for_role(role: str) -> str:
     return roles.get(role, settings.nebius_model)
 
 
-def get_llm(role: str = "default", temperature: float = 0) -> ChatOpenAI:
+def get_llm(role: str = "default", temperature: float = 0, max_tokens: int | None = None) -> ChatOpenAI:
     settings = get_settings()
-    return ChatOpenAI(
-        model=get_model_for_role(role if role != "default" else "intake"),
-        base_url=settings.nebius_base_url,
-        api_key=settings.nebius_api_key,
-        temperature=temperature,
-    )
+    resolved_role = role if role != "default" else "intake"
+    kwargs: dict[str, Any] = {
+        "model": get_model_for_role(resolved_role),
+        "base_url": settings.nebius_base_url,
+        "api_key": settings.nebius_api_key,
+        "temperature": temperature,
+    }
+    tokens = max_tokens if max_tokens is not None else _ROLE_MAX_TOKENS.get(resolved_role)
+    if tokens is not None:
+        kwargs["max_tokens"] = tokens
+    return ChatOpenAI(**kwargs)
+
+
+def clean_llm_json_text(text: str) -> str:
+    """Strip markdown fences and isolate the outermost JSON object."""
+    stripped = text.strip()
+    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", stripped, flags=re.IGNORECASE)
+    if fence:
+        stripped = fence.group(1).strip()
+
+    start = stripped.find("{")
+    end = stripped.rfind("}") + 1
+    if start >= 0 and end > start:
+        return stripped[start:end]
+    return stripped
+
+
+def parse_llm_json(text: str) -> Any:
+    return json.loads(clean_llm_json_text(text))
+
+
+def _try_structured_output(llm: ChatOpenAI, schema: type[T], messages: list[BaseMessage]) -> T | None:
+    for method in ("json_schema", "json_mode", "function_calling"):
+        try:
+            structured = llm.with_structured_output(schema, method=method)
+            result = structured.invoke(messages)
+            if isinstance(result, schema):
+                return result
+            if isinstance(result, dict):
+                return schema.model_validate(result)
+        except Exception:
+            continue
+    return None
 
 
 def structured_extract(
@@ -45,6 +95,7 @@ def structured_extract(
     schema: type[T],
     system: str = "Return valid JSON matching the schema exactly.",
     role: str = "parser",
+    max_attempts: int = 3,
 ) -> T:
     if is_offline():
         return _offline_structured(schema, prompt)
@@ -58,20 +109,46 @@ def structured_extract(
     started = time.perf_counter()
 
     llm = get_llm(role=role)
-    messages = [
+    messages: list[BaseMessage] = [
         SystemMessage(content=f"{system}\nSchema: {schema.model_json_schema()}"),
         HumanMessage(content=prompt),
     ]
-    response = llm.invoke(messages)
-    log_timing(f"LLM [{role}]", time.perf_counter() - started)
 
-    text = str(response.content)
-    start = text.find("{")
-    end = text.rfind("}") + 1
-    if start >= 0 and end > start:
-        text = text[start:end]
-    data = json.loads(text)
-    return schema.model_validate(data)
+    structured = _try_structured_output(llm, schema, messages)
+    if structured is not None:
+        log_timing(f"LLM [{role}]", time.perf_counter() - started)
+        return structured
+
+    last_error: Exception | None = None
+    for attempt in range(max_attempts):
+        response = llm.invoke(messages)
+        text = str(response.content)
+        try:
+            data = parse_llm_json(text)
+            result = schema.model_validate(data)
+            log_timing(f"LLM [{role}]", time.perf_counter() - started)
+            return result
+        except (json.JSONDecodeError, ValidationError) as exc:
+            last_error = exc
+            log(
+                f"LLM [{role}] structured parse failed "
+                f"(attempt {attempt + 1}/{max_attempts}): {exc}"
+            )
+            if attempt + 1 >= max_attempts:
+                break
+            messages = [
+                *messages,
+                AIMessage(content=text),
+                HumanMessage(content=_JSON_RETRY_HINT),
+            ]
+
+    log_timing(f"LLM [{role}]", time.perf_counter() - started)
+    assert last_error is not None
+    raise StructuredExtractError(
+        role=role,
+        schema=schema.__name__,
+        cause=last_error,
+    ) from last_error
 
 
 def _offline_structured(schema: type[T], prompt: str) -> T:

@@ -1,32 +1,64 @@
 "use client";
 
 import { useState } from "react";
-import { actionBar, btnPrimary, btnSecondary, card, cn, inputBase } from "@/lib/ui";
+import { actionBar, btnPrimary, btnSecondary, card, cn } from "@/lib/ui";
 
-export default function ReviseDialog({
+function agentStatusTone(verdict: unknown): "success" | "warning" | "danger" | "neutral" {
+  const v = String(verdict || "").toUpperCase();
+  if (v === "PROCEED") return "success";
+  if (v === "CLARIFY") return "warning";
+  if (v === "REJECT") return "danger";
+  return "neutral";
+}
+
+export default function StepDecisionActions({
   onProceed,
-  onRevise,
   onRestart,
   showPathwaySelect,
   pathwayIds,
+  agentStatus,
   proceedDisabled,
   proceedDisabledReason,
   busy,
 }: {
-  onProceed: (opts: { notes?: string; selectedPathwayIds?: string[]; primaryPathwayId?: string }) => void;
-  onRevise: (notes: string) => void;
+  onProceed: (opts: { selectedPathwayIds?: string[]; primaryPathwayId?: string }) => void;
   onRestart?: () => void;
   showPathwaySelect?: boolean;
   pathwayIds?: { id: string; name: string }[];
+  agentStatus?: string | null;
   proceedDisabled?: boolean;
   proceedDisabledReason?: string | null;
   busy?: boolean;
 }) {
-  const [notes, setNotes] = useState("");
   const [selected, setSelected] = useState<string[]>(pathwayIds?.[0] ? [pathwayIds[0].id] : []);
+  const tone = agentStatus != null ? agentStatusTone(agentStatus) : null;
 
   return (
     <div className={cn(card, "p-4")}>
+      {agentStatus != null && tone && (
+        <div
+          className={cn(
+            "mb-3 rounded-md border px-3 py-2.5",
+            tone === "success" && "border-emerald-900/50 bg-emerald-950/20",
+            tone === "warning" && "border-amber-900/50 bg-amber-950/20",
+            tone === "danger" && "border-red-900/50 bg-red-950/20",
+            tone === "neutral" && "border-border-subtle bg-surface-raised"
+          )}
+        >
+          <span className="text-[12px] font-medium uppercase tracking-wide text-muted">Agent Status</span>
+          <p
+            className={cn(
+              "mt-1 text-[14px] font-semibold",
+              tone === "success" && "text-emerald-300",
+              tone === "warning" && "text-amber-300",
+              tone === "danger" && "text-red-300",
+              tone === "neutral" && "text-foreground"
+            )}
+          >
+            {String(agentStatus)}
+          </p>
+        </div>
+      )}
       {showPathwaySelect && pathwayIds && (
         <div className="mb-3">
           <strong className="text-sm">Select pathway(s)</strong>
@@ -49,13 +81,6 @@ export default function ReviseDialog({
       {proceedDisabledReason && (
         <p className="mb-3 text-sm text-danger">{proceedDisabledReason}</p>
       )}
-      <textarea
-        placeholder="Revision notes (optional)"
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        rows={2}
-        className={cn(inputBase, "mb-2")}
-      />
       <div className={actionBar}>
         <button
           type="button"
@@ -63,16 +88,12 @@ export default function ReviseDialog({
           disabled={busy || proceedDisabled}
           onClick={() =>
             onProceed({
-              notes: notes || undefined,
               selectedPathwayIds: selected.length ? selected : undefined,
               primaryPathwayId: selected[0],
             })
           }
         >
           {busy ? "Working…" : "Proceed"}
-        </button>
-        <button type="button" className={btnSecondary} disabled={busy} onClick={() => onRevise(notes)}>
-          Revise
         </button>
         {onRestart && (
           <button type="button" className={btnSecondary} disabled={busy} onClick={onRestart}>

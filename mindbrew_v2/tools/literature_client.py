@@ -31,7 +31,7 @@ def build_literature_prompt(
     organism = ", ".join(brief.organism) if brief.organism else "suitable host organism"
     constraints = "; ".join(brief.constraints) if brief.constraints else "none"
 
-    prompt = f"""Identify 3-7 metabolic pathways to convert {feedstock} into {target} in {organism}.
+    prompt = f"""Identify 3-5 metabolic pathways to convert {feedstock} into {target} in {organism}.
 Target function: {brief.target_function}
 For each pathway return: reaction_steps, enzymes (EC + gene names),
 heterologous vs native, literature citations (DOI/PMID), reported titers, confidence,
@@ -42,7 +42,8 @@ Confidence rubric:
 - partial: pathway known but host/titer not demonstrated for this case
 - inferred: assembled from KEGG/reaction logic without direct product evidence
 
-Constraints: {constraints}. Do NOT predict yields — pathway identification only."""
+Constraints: {constraints}. Do NOT predict yields — pathway identification only.
+Return compact JSON: at most 5 pathways, at most 6 reaction_steps each, at most 2 citations per pathway."""
     if revision_notes:
         prompt += f"\n\nReviewer revision notes:\n{revision_notes}"
 

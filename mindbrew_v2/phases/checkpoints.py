@@ -202,35 +202,35 @@ def prepare_step_restart_state(state: dict, step_id: StepId) -> dict:
 
 
 def merge_step_artifact_into_state(state: dict, step_id: StepId, artifact: dict) -> dict:
-    """Restore graph fields from a persisted step artifact."""
+    """Restore graph fields from a persisted step artifact when missing in state."""
     updated = dict(state)
     if step_id == StepId.CP1_SPEC:
-        if artifact.get("brief") is not None:
+        if updated.get("brief") is None and artifact.get("brief") is not None:
             updated["brief"] = artifact["brief"]
-        if artifact.get("validation_mode") is not None:
+        if updated.get("validation_mode") is None and artifact.get("validation_mode") is not None:
             updated["validation_mode"] = artifact["validation_mode"]
-        if artifact.get("gem_profile") is not None:
+        if updated.get("gem_profile") is None and artifact.get("gem_profile") is not None:
             updated["gem_profile"] = artifact["gem_profile"]
-        if artifact.get("gem_selection_reason") is not None:
+        if updated.get("gem_selection_reason") is None and artifact.get("gem_selection_reason") is not None:
             updated["gem_selection_reason"] = artifact["gem_selection_reason"]
     elif step_id == StepId.CP2_PATHWAYS:
-        if artifact.get("pathway_candidates") is not None:
+        if not updated.get("pathway_candidates") and artifact.get("pathway_candidates") is not None:
             updated["pathway_candidates"] = artifact["pathway_candidates"]
     elif step_id == StepId.CP3_FBA_PLAN:
-        if artifact.get("gem_profile") is not None:
+        if updated.get("gem_profile") is None and artifact.get("gem_profile") is not None:
             updated["gem_profile"] = artifact["gem_profile"]
-        if artifact.get("score_payloads") is not None:
+        if not updated.get("score_payloads") and artifact.get("score_payloads") is not None:
             updated["score_payloads"] = artifact["score_payloads"]
-        if artifact.get("skipped") is not None:
+        if not updated.get("formalize_skipped") and artifact.get("skipped") is not None:
             updated["formalize_skipped"] = artifact["skipped"]
     elif step_id == StepId.CP4_FBA_RESULTS:
-        if artifact.get("fba_results") is not None:
+        if not updated.get("fba_results") and artifact.get("fba_results") is not None:
             updated["fba_results"] = artifact["fba_results"]
     elif step_id == StepId.CP3B_LITERATURE_PLAN:
-        if artifact.get("literature_plan") is not None:
+        if updated.get("literature_plan") is None and artifact.get("literature_plan") is not None:
             updated["literature_plan"] = artifact["literature_plan"]
     elif step_id == StepId.CP5_REPORT:
-        if artifact.get("report") is not None:
+        if updated.get("report") is None and artifact.get("report") is not None:
             updated["report"] = artifact["report"]
     return updated
 
