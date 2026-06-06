@@ -32,7 +32,7 @@ def test_cp1_reject_blocks_proceed():
     assert "rejected" in reason.lower()
 
 
-def test_cp1_clarify_blocks_proceed():
+def test_cp1_clarify_allows_proceed():
     decision = HumanDecision(checkpoint="cp1_spec", action="proceed")
     state = _state(
         brief={
@@ -40,9 +40,7 @@ def test_cp1_clarify_blocks_proceed():
             "clarifying_questions": ["Which organism?"],
         }
     )
-    reason = decision_block_reason(decision, state)
-    assert reason is not None
-    assert "Which organism?" in reason
+    assert decision_block_reason(decision, state) is None
 
 
 def test_cp2_empty_candidates_blocks_proceed():

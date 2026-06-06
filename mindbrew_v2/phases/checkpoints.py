@@ -310,12 +310,6 @@ def decision_block_reason(decision: HumanDecision, state: dict) -> str | None:
                 "Cannot proceed: the agent rejected this brief as outside biocatalysis / "
                 "fermentation scope. Revise the brief or start a new session."
             )
-        if verdict == "CLARIFY":
-            questions = brief.get("clarifying_questions") or []
-            base = "Cannot proceed: the agent needs clarification before continuing."
-            if questions:
-                return base + " Open questions: " + "; ".join(questions)
-            return base + " Revise the brief with more detail."
 
     if decision.checkpoint == "cp2_pathways":
         candidates = state.get("pathway_candidates") or []

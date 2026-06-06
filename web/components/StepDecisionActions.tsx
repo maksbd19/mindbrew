@@ -17,6 +17,7 @@ export default function StepDecisionActions({
   showPathwaySelect,
   selectedPathway,
   agentStatus,
+  clarificationsPending,
   proceedDisabled,
   proceedDisabledReason,
   busy,
@@ -27,6 +28,7 @@ export default function StepDecisionActions({
   showPathwaySelect?: boolean;
   selectedPathway?: { id: string; name: string } | null;
   agentStatus?: string | null;
+  clarificationsPending?: boolean;
   proceedDisabled?: boolean;
   proceedDisabledReason?: string | null;
   busy?: boolean;
@@ -73,6 +75,12 @@ export default function StepDecisionActions({
             </p>
           )}
         </div>
+      )}
+      {clarificationsPending && (
+        <p className="mb-3 rounded-md border border-amber-900/50 bg-amber-950/20 px-3 py-2.5 text-[13px] text-amber-200">
+          The agent needs clarification. Revise the brief to address open questions, or proceed anyway if you
+          have enough context.
+        </p>
       )}
       {proceedDisabledReason && (
         <p className="mb-3 text-sm text-danger">{proceedDisabledReason}</p>

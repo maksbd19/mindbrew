@@ -6,9 +6,11 @@ import { btnSecondary, cn, inputBase } from "@/lib/ui";
 export default function ReviseForm({
   onRevise,
   busy,
+  hasClarifications,
 }: {
   onRevise: (notes: string) => void;
   busy?: boolean;
+  hasClarifications?: boolean;
 }) {
   const [notes, setNotes] = useState("");
 
@@ -20,11 +22,15 @@ export default function ReviseForm({
   return (
     <div className="mt-4 border-t border-border-subtle pt-4">
       <label htmlFor="revision-notes" className="mb-2 block text-[13px] font-medium text-foreground">
-        Add revision notes
+        {hasClarifications ? "Answer the clarifications above" : "Add revision notes"}
       </label>
       <textarea
         id="revision-notes"
-        placeholder="Describe what to change — this becomes part of the conversation"
+        placeholder={
+          hasClarifications
+            ? "Enter your answers here — they become part of the conversation and update the brief"
+            : "Describe what to change — this becomes part of the conversation"
+        }
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         rows={3}

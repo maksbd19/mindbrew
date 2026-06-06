@@ -75,22 +75,54 @@ function mergeEvents(prev: StreamEvent[], incoming: StreamEvent[]): StreamEvent[
   return merged;
 }
 
+type BriefGatekeeper = {
+  gatekeeper_verdict?: string;
+  clarifying_questions?: string[];
+};
+
+function clarifyingQuestions(brief: BriefGatekeeper | null | undefined): string[] {
+  return brief?.clarifying_questions?.filter(Boolean) ?? [];
+}
+
+function clarificationsPending(brief: BriefGatekeeper | null | undefined): boolean {
+  if (!brief) return false;
+  return clarifyingQuestions(brief).length > 0 || brief.gatekeeper_verdict === "CLARIFY";
+}
+
+function effectiveAgentStatus(brief: BriefGatekeeper | null | undefined): string | null {
+  if (!brief) return null;
+  if (clarifyingQuestions(brief).length > 0) return "CLARIFY";
+  return brief.gatekeeper_verdict ?? null;
+}
+
 function proceedBlockReason(
   stepId: string,
   artifact: Record<string, unknown> | null
 ): string | null {
   if (stepId !== "cp1_spec" || !artifact?.brief) return null;
-  const brief = artifact.brief as { gatekeeper_verdict?: string; clarifying_questions?: string[] };
+  const brief = artifact.brief as BriefGatekeeper;
   if (brief.gatekeeper_verdict === "REJECT") {
     return "Proceed is blocked: the agent rejected this brief as out of scope. Revise the brief or start a new session.";
   }
-  if (brief.gatekeeper_verdict === "CLARIFY") {
-    const qs = brief.clarifying_questions?.filter(Boolean) ?? [];
-    return qs.length
-      ? `Proceed is blocked until these are resolved: ${qs.join("; ")}`
-      : "Proceed is blocked: the agent needs more detail. Revise the brief first.";
-  }
   return null;
+}
+
+function clarificationConversationPrompt(brief: BriefGatekeeper | null | undefined): string | null {
+  if (!clarificationsPending(brief)) return null;
+  const questions = clarifyingQuestions(brief);
+  if (questions.length > 0) {
+    return questions.map((q) => `• ${q}`).join("\n");
+  }
+  return "The agent needs more detail before continuing.";
+}
+
+function confirmProceedDespiteClarifications(questions: string[]): boolean {
+  const list = questions.length
+    ? `\n\nOpen questions:\n${questions.map((q) => `• ${q}`).join("\n")}`
+    : "";
+  return window.confirm(
+    `The agent flagged clarifications before continuing.${list}\n\nProceed to the next step anyway?`
+  );
 }
 
 export default function SessionDetailPage() {
@@ -452,11 +484,25 @@ export default function SessionDetailPage() {
     applySession(updated);
   }
 
-  const proceedBlocked = proceedBlockReason(viewStep, artifact);
-  const agentStatus =
+  const briefGatekeeper =
     artifact?.brief && typeof artifact.brief === "object"
-      ? ((artifact.brief as { gatekeeper_verdict?: string }).gatekeeper_verdict ?? null)
+      ? (artifact.brief as BriefGatekeeper)
       : null;
+  const proceedBlocked = proceedBlockReason(viewStep, artifact);
+  const agentStatus = effectiveAgentStatus(briefGatekeeper);
+  const pendingClarifications = clarificationsPending(briefGatekeeper);
+  const openClarifyingQuestions = clarifyingQuestions(briefGatekeeper);
+  const clarificationPrompt = clarificationConversationPrompt(briefGatekeeper);
+
+  function handleProceed(opts: {
+    selectedPathwayIds?: string[];
+    primaryPathwayId?: string;
+  }) {
+    if (pendingClarifications && !confirmProceedDespiteClarifications(openClarifyingQuestions)) {
+      return;
+    }
+    void sendDecision("proceed", opts);
+  }
   const selectedPathway =
     pathwayCandidates.find((p) => p.id === selectedPathwayId) ??
     resolvePathwayChoice(cp2Candidates, selectedPathwayId);
@@ -618,11 +664,12 @@ export default function SessionDetailPage() {
                 showPathwaySelect={viewStep === "cp2_pathways"}
                 selectedPathway={selectedPathway}
                 agentStatus={agentStatus}
+                clarificationsPending={pendingClarifications}
                 proceedDisabled={Boolean(proceedBlocked)}
                 proceedDisabledReason={proceedBlocked}
                 busy={deciding || restarting}
                 onRestart={handleRestartStep}
-                onProceed={(opts) => sendDecision("proceed", opts)}
+                onProceed={handleProceed}
                 onReject={() => {
                   if (window.confirm("Reject this session? The run will stop and cannot be resumed.")) {
                     void sendDecision("reject");
@@ -637,6 +684,7 @@ export default function SessionDetailPage() {
               session={session}
               showRevise={showDecisionPanel}
               reviseBusy={deciding || restarting}
+              clarificationPrompt={showDecisionPanel ? clarificationPrompt : null}
               onRevise={(notes) => sendDecision("revise", { notes })}
             />
           </aside>
