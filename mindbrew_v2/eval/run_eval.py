@@ -44,8 +44,6 @@ def run_eval(phase: str | None = None, live: bool = False) -> list[EvalResult]:
             continue
         if case.requires_live_api and not live:
             continue
-        if not case.requires_live_api and live is False:
-            pass
 
         scorer = SCORERS.get(case.phase)
         if not scorer:

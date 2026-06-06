@@ -12,13 +12,14 @@ from mindbrew_v2.phases.biomni import run_biomni_search
 from mindbrew_v2.phases.formalize import formalize_pathways
 from mindbrew_v2.phases.intake import run_intake
 from mindbrew_v2.phases.report import generate_report
-from mindbrew_v2.demo_tickets import TICKET_1
 from mindbrew_v2.tools.fba_client import rank_fba_results, score_pathway
+
+TICKET_1_BRIEF = """We're looking for a natural replacement for silicones in our premium haircare line. We want something that delivers the same smoothness and frizz control as dimethicone, but is fully natural and sustainably sourced. We'd like to make it from a common plant oil through fermentation. Can you figure out the best way to produce it and what it would take to manufacture?"""
 
 
 @pytest.fixture
 def ticket1_brief():
-    ticket = Ticket(id="golden-ticket1", raw_brief=TICKET_1)
+    ticket = Ticket(id="golden-ticket1", raw_brief=TICKET_1_BRIEF)
     return run_intake(ticket)
 
 

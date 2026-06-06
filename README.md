@@ -19,7 +19,6 @@ The product is **not** a literature summary. The moat is **flux-validated pathwa
 - [API surface](#api-surface)
 - [Getting started](#getting-started)
 - [Configuration](#configuration)
-- [Demo tickets](#demo-tickets)
 - [Evaluation harness](#evaluation-harness)
 - [Extending the system](#extending-the-system)
 - [Version policy (v1 vs v2)](#version-policy-v1-vs-v2)
@@ -207,7 +206,6 @@ brewmind/
 │   │   └── fba_client.py             # Direct import wrapper for find_ids + fba_tool
 │   ├── graph.py              # LangGraph definition
 │   ├── models.py             # Pydantic state models
-│   ├── demo_tickets.py       # Ticket 1–3 demo briefs
 │   ├── offline/              # Deterministic fixtures (BREWMIND_OFFLINE)
 │   └── eval/                 # Gold-truth harness
 │       ├── gold/cases.yaml
@@ -363,7 +361,7 @@ uv run uvicorn api.main:app --reload --port 8000
 cd web && npm install && npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) → **New session** → paste a brief or pick a demo ticket.
+Open [http://localhost:3000](http://localhost:3000) → **New session** → paste your R&D brief.
 
 ### Using uv
 
@@ -413,20 +411,6 @@ Copy `.env.example` → `.env`. All variables below are **required** for the Pyt
 | `API_URL` | Backend URL for Next.js SSR (default `http://127.0.0.1:8000`) |
 | `NEXT_PUBLIC_API_URL` | Browser API base (default `/api` — proxied, avoids CORS) |
 | `CORS_ORIGINS` | Optional comma-separated extra CORS origins for direct API access |
-
----
-
-## Demo tickets
-
-Three Estée Lauder-style briefs ship with the UI and eval harness:
-
-| Ticket | Topic | Typical branch |
-|--------|-------|----------------|
-| **Ticket 1** | Silicone replacement via plant-oil fermentation | FBA (iYLI647) — golden path |
-| **Ticket 2** | Scalp microbiome / dandruff ingredient | Literature (no GEM yet) |
-| **Ticket 3** | Cuticle repair / barrier lipid from plant oil | FBA if lipid GEM matches; else literature |
-
-Defined in `mindbrew_v2/demo_tickets.py` and selectable on the **New session** page.
 
 ---
 

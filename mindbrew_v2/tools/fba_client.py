@@ -58,14 +58,15 @@ def run_find_ids(model_ref: str) -> dict[str, Any]:
         if report.get("status") == "ok":
             log_timing(f"FBA find_ids ({model_ref})", time.perf_counter() - started)
             return report
-        log(f"FBA find_ids preflight failed: {report.get('message', report)}", level="warning")
+        message = report.get("message", report)
+        log(f"FBA find_ids preflight failed: {message}", level="error")
+        raise RuntimeError(f"FBA find_ids preflight failed for {model_ref}: {message}")
     except ImportError as exc:
         log(str(exc), level="error")
+        raise
     except Exception as exc:
-        log(f"FBA find_ids error: {exc}", level="warning")
-
-    log("FBA find_ids failed; using offline stub", level="warning")
-    return _offline_find_ids()
+        log(f"FBA find_ids error: {exc}", level="error")
+        raise RuntimeError(f"FBA find_ids failed for {model_ref}") from exc
 
 
 def score_pathway(payload: ScorePathwayPayload) -> FBAValidationResult:
@@ -90,11 +91,10 @@ def score_pathway(payload: ScorePathwayPayload) -> FBAValidationResult:
         return parsed
     except ImportError as exc:
         log(str(exc), level="error")
+        raise
     except Exception as exc:
-        log(f"FBA score_pathway error for {payload.pathway_id}: {exc}", level="warning")
-
-    log(f"FBA score_pathway failed for {payload.pathway_id}; using offline stub", level="warning")
-    return _offline_score(payload)
+        log(f"FBA score_pathway error for {payload.pathway_id}: {exc}", level="error")
+        raise RuntimeError(f"FBA score_pathway failed for {payload.pathway_id}") from exc
 
 
 def rank_fba_results(results: list[FBAValidationResult]) -> list[FBAValidationResult]:

@@ -6,6 +6,7 @@ from collections.abc import Generator
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from mindbrew_v2.settings import get_settings
 
@@ -17,7 +18,13 @@ def get_engine():
     global _engine
     if _engine is None:
         settings = get_settings()
-        _engine = create_engine(normalize_database_url(settings.database_url), pool_pre_ping=True)
+        url = normalize_database_url(settings.database_url)
+        kwargs: dict = {"pool_pre_ping": True}
+        if url.startswith("sqlite"):
+            kwargs["connect_args"] = {"check_same_thread": False}
+            if ":memory:" in url:
+                kwargs["poolclass"] = StaticPool
+        _engine = create_engine(url, **kwargs)
     return _engine
 
 

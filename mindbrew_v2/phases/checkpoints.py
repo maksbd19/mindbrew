@@ -23,6 +23,8 @@ STEP_WORK_NODE: dict[StepId, str] = {
     StepId.CP5_REPORT: "generate_report",
 }
 
+WORK_NODE_TO_STEP: dict[str, str] = {node: step.value for step, node in STEP_WORK_NODE.items()}
+
 STEP_REVIEW_NODE: dict[StepId, str] = {step_id: node for node, step_id in (
     ("cp1_spec_review", StepId.CP1_SPEC),
     ("cp2_pathway_review", StepId.CP2_PATHWAYS),
@@ -283,6 +285,47 @@ def restore_prior_step_memory(state: dict, step_id: StepId, step_rows: list) -> 
                         updated["primary_pathway_id"] = selected[0]
                     break
     return updated
+
+
+def decision_block_reason(decision: HumanDecision, state: dict) -> str | None:
+    """Return an error message when a human decision cannot be applied, else None."""
+    from mindbrew_v2.settings import get_settings
+
+    if decision.action == "revise":
+        max_revisions = state.get("max_revisions", get_settings().max_revisions)
+        if state.get("revision_number", 0) >= max_revisions:
+            return (
+                f"Cannot revise: maximum revision limit ({max_revisions}) reached. "
+                "Proceed or start a new session."
+            )
+
+    if decision.action != "proceed":
+        return None
+
+    if decision.checkpoint == "cp1_spec":
+        brief = state.get("brief") or {}
+        verdict = brief.get("gatekeeper_verdict")
+        if verdict == "REJECT":
+            return (
+                "Cannot proceed: the agent rejected this brief as outside biocatalysis / "
+                "fermentation scope. Revise the brief or start a new session."
+            )
+        if verdict == "CLARIFY":
+            questions = brief.get("clarifying_questions") or []
+            base = "Cannot proceed: the agent needs clarification before continuing."
+            if questions:
+                return base + " Open questions: " + "; ".join(questions)
+            return base + " Revise the brief with more detail."
+
+    if decision.checkpoint == "cp2_pathways":
+        candidates = state.get("pathway_candidates") or []
+        if not candidates:
+            return "Cannot proceed: no pathway candidates were found. Revise the search or retry."
+        selected = decision.selected_pathway_ids or []
+        if not selected:
+            return "Cannot proceed: select at least one pathway before continuing."
+
+    return None
 
 
 def apply_decision_to_state(state: dict, decision: HumanDecision) -> dict:

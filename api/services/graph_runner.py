@@ -20,7 +20,11 @@ from mindbrew_v2.models import HumanDecision, StepId, Ticket
 from mindbrew_v2.phases.checkpoints import (
     CHECKPOINT_TO_STEP,
     NODE_TO_CHECKPOINT,
+    WORK_NODE_TO_STEP,
+    apply_decision_to_state,
     artifact_for_checkpoint,
+    checkpoint_summary,
+    decision_block_reason,
     downstream_steps,
     paused_at_step_checkpoint,
     prepare_step_restart_state,
@@ -48,20 +52,30 @@ class SessionInterrupted(Exception):
 def get_checkpointer():
     global _checkpointer, _checkpointer_ctx
     if _checkpointer is None:
-        try:
-            from langgraph.checkpoint.postgres import PostgresSaver
-            from api.db.database import psycopg_conn_string
-            from mindbrew_v2.settings import get_settings
+        from api.db.database import normalize_database_url, psycopg_conn_string
+        from mindbrew_v2.settings import ConfigurationError, get_settings
 
-            settings = get_settings()
-            _checkpointer_ctx = PostgresSaver.from_conn_string(psycopg_conn_string(settings.database_url))
-            _checkpointer = _checkpointer_ctx.__enter__()
-            _checkpointer.setup()
-        except Exception:
-            logger.warning("Postgres checkpointer unavailable; using in-memory saver", exc_info=True)
+        settings = get_settings()
+        url = normalize_database_url(settings.database_url)
+        if url.startswith("sqlite"):
             from langgraph.checkpoint.memory import MemorySaver
 
             _checkpointer = MemorySaver()
+        else:
+            try:
+                from langgraph.checkpoint.postgres import PostgresSaver
+
+                _checkpointer_ctx = PostgresSaver.from_conn_string(
+                    psycopg_conn_string(settings.database_url)
+                )
+                _checkpointer = _checkpointer_ctx.__enter__()
+                _checkpointer.setup()
+            except Exception as exc:
+                raise ConfigurationError(
+                    "Postgres LangGraph checkpointer failed to initialize. "
+                    "Verify DATABASE_URL and that the database is reachable, "
+                    "or use sqlite:// for local in-memory checkpoints."
+                ) from exc
     return _checkpointer
 
 
@@ -94,10 +108,12 @@ def validate_decision(session_id: str, decision: HumanDecision, db) -> str | Non
     if not snapshot.values:
         return "No agent checkpoint found for this session. Start a new session or use Retry."
     current = dict(snapshot.values)
-    return _decision_block_reason(decision.checkpoint, decision.action, current)
+    return decision_block_reason(decision, current)
 
 
 def _initial_state(session_id: str, raw_brief: str) -> dict:
+    from mindbrew_v2.settings import get_settings
+
     return {
         "ticket": Ticket(id=session_id, raw_brief=raw_brief).model_dump(),
         "brief": None,
@@ -113,7 +129,7 @@ def _initial_state(session_id: str, raw_brief: str) -> dict:
         "pending_checkpoint": None,
         "human_decisions": [],
         "revision_number": 0,
-        "max_revisions": 5,
+        "max_revisions": get_settings().max_revisions,
         "revision_notes": None,
     }
 
@@ -208,7 +224,7 @@ async def _emit_awaiting_user(
     evt = {
         "type": "awaiting_user",
         "step_id": step,
-        "summary": f"Awaiting decision at {checkpoint}",
+        "summary": checkpoint_summary(checkpoint, artifact),
         "artifact": artifact,
     }
     append_stream_event(db, session_id, "awaiting_user", evt)
@@ -248,7 +264,8 @@ async def _handle_chunk(session_id: str, chunk: dict, db, graph, config: dict) -
 
     node_name = list(chunk.keys())[0] if chunk else None
     if node_name and node_name != "__interrupt__":
-        evt = {"type": "step_complete", "step_id": node_name}
+        step_id = WORK_NODE_TO_STEP.get(node_name, node_name)
+        evt = {"type": "step_complete", "step_id": step_id, "node_id": node_name}
         append_stream_event(db, session_id, "step_complete", evt)
         return evt
     return None
@@ -272,29 +289,6 @@ async def _finalize_graph_run(session_id: str, db, graph, config: dict) -> dict 
         return None
     checkpoint, artifact = resolved
     return await _emit_awaiting_user(session_id, db, checkpoint, artifact)
-
-
-def _decision_block_reason(checkpoint: str, action: str, state: dict) -> str | None:
-    if checkpoint != "cp1_spec" or action != "proceed":
-        return None
-    brief = state.get("brief") or {}
-    verdict = brief.get("gatekeeper_verdict")
-    if verdict == "REJECT":
-        return (
-            "Cannot proceed: the agent rejected this brief as outside biocatalysis / "
-            "fermentation scope. Revise the brief or start a new session."
-        )
-    if verdict == "CLARIFY":
-        questions = brief.get("clarifying_questions") or []
-        base = "Cannot proceed: the agent needs clarification before continuing."
-        if questions:
-            return base + " Open questions: " + "; ".join(questions)
-        return base + " Revise the brief with more detail."
-    if checkpoint == "cp2_pathways" and action == "proceed":
-        candidates = state.get("pathway_candidates") or []
-        if not candidates:
-            return "Cannot proceed: no pathway candidates were found. Revise the search or retry."
-    return None
 
 
 async def _run_graph_loop(session_id: str, db, graph, config: dict, graph_input: Any) -> AsyncIterator[dict]:
@@ -390,31 +384,13 @@ async def resume_session(session_id: str, decision: HumanDecision) -> AsyncItera
 
     current = dict(snapshot.values)
 
-    block_reason = _decision_block_reason(decision.checkpoint, decision.action, current)
+    block_reason = decision_block_reason(decision, current)
     if block_reason:
         err = {"type": "error", "message": block_reason}
         append_stream_event(db, session_id, "error", err)
         yield err
         db.close()
         return
-
-    decisions = list(current.get("human_decisions", []))
-    decisions.append(decision.model_dump())
-    current["human_decisions"] = decisions
-
-    if decision.action == "revise":
-        current["revision_number"] = current.get("revision_number", 0) + 1
-        current["revision_notes"] = decision.notes or ""
-    if decision.action == "proceed":
-        if decision.selected_pathway_ids:
-            candidates = current.get("pathway_candidates", [])
-            current["approved_candidates"] = [
-                c for c in candidates if c.get("id") in decision.selected_pathway_ids
-            ]
-        if decision.primary_pathway_id:
-            current["primary_pathway_id"] = decision.primary_pathway_id
-        elif decision.selected_pathway_ids:
-            current["primary_pathway_id"] = decision.selected_pathway_ids[0]
 
     if decision.action == "reject":
         update_session_status(db, session_id, "failed")
@@ -425,6 +401,7 @@ async def resume_session(session_id: str, decision: HumanDecision) -> AsyncItera
         db.close()
         return
 
+    current = apply_decision_to_state(current, decision)
     graph.update_state(config, current)
     step_status = "completed" if decision.action == "proceed" else "running"
     upsert_step(

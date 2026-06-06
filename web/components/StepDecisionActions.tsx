@@ -12,6 +12,7 @@ function agentStatusTone(verdict: unknown): "success" | "warning" | "danger" | "
 
 export default function StepDecisionActions({
   onProceed,
+  onReject,
   onRestart,
   showPathwaySelect,
   selectedPathway,
@@ -21,6 +22,7 @@ export default function StepDecisionActions({
   busy,
 }: {
   onProceed: (opts: { selectedPathwayIds?: string[]; primaryPathwayId?: string }) => void;
+  onReject?: () => void;
   onRestart?: () => void;
   showPathwaySelect?: boolean;
   selectedPathway?: { id: string; name: string } | null;
@@ -92,6 +94,16 @@ export default function StepDecisionActions({
         {onRestart && (
           <button type="button" className={btnSecondary} disabled={busy} onClick={onRestart}>
             Restart step
+          </button>
+        )}
+        {onReject && (
+          <button
+            type="button"
+            className={cn(btnSecondary, "text-danger hover:border-red-900/50 hover:bg-red-950/20")}
+            disabled={busy}
+            onClick={onReject}
+          >
+            Reject
           </button>
         )}
       </div>

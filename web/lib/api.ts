@@ -89,11 +89,11 @@ export async function updateSessionTitle(sessionId: string, title: string): Prom
   return res.json();
 }
 
-export async function suggestSessionTitle(sessionId: string): Promise<Session> {
+export async function suggestSessionTitle(sessionId: string, force = false): Promise<Session> {
   const res = await fetch(`${API_URL}/sessions/${sessionId}/title/suggest`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ force: false }),
+    body: JSON.stringify({ force }),
   });
   if (!res.ok) throw new Error(await parseApiError(res, "Failed to generate title"));
   return res.json();
@@ -139,7 +139,8 @@ export async function getSessionEvents(id: string, afterSeq = 0): Promise<Stream
   return res.json();
 }
 export async function deleteSession(id: string): Promise<void> {
-  await fetch(`${API_URL}/sessions/${id}`, { method: "DELETE" });
+  const res = await fetch(`${API_URL}/sessions/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await parseApiError(res, "Failed to delete session"));
 }
 
 export async function restartSessionStep(sessionId: string, stepId: string): Promise<Session> {
@@ -171,8 +172,4 @@ export async function submitDecision(
 
 export function streamUrl(sessionId: string, afterSeq = 0): string {
   return `${API_URL}/sessions/${sessionId}/stream?after_seq=${afterSeq}`;
-}
-
-export function decideUrl(sessionId: string, stepId: string): string {
-  return `${API_URL}/sessions/${sessionId}/steps/${stepId}/decide`;
 }

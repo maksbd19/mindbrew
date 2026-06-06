@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { SessionSummary } from "@/lib/api";
 import { formatFullDate, formatRelativeDate, formatStatusLabel, formatStepLabel } from "@/lib/format";
 import { card, dataTable, dataTableCell, dataTableHead, pageSubtitle, statusChipClass } from "@/lib/ui";
+import DeleteSessionButton from "@/components/DeleteSessionButton";
 import Pagination from "@/components/Pagination";
 
 type SessionListProps = {
@@ -64,6 +65,9 @@ export default function SessionList({
               <th className={dataTableHead}>Status</th>
               <th className={dataTableHead}>Step</th>
               <th className={dataTableHead}>Updated</th>
+              <th className={dataTableHead}>
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -92,6 +96,9 @@ export default function SessionList({
                   <time dateTime={s.updated_at} title={formatFullDate(s.updated_at)}>
                     {formatRelativeDate(s.updated_at)}
                   </time>
+                </td>
+                <td className={dataTableCell}>
+                  <DeleteSessionButton sessionId={s.id} sessionTitle={s.title} />
                 </td>
               </tr>
             ))}

@@ -6,15 +6,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.db.database import get_engine
+from api.db.database import get_engine, normalize_database_url
 from api.db.models import Base
+from mindbrew_v2.settings import get_settings
 from api.routes.sessions import router as sessions_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     engine = get_engine()
-    Base.metadata.create_all(bind=engine)
+    url = normalize_database_url(get_settings().database_url)
+    if url.startswith("sqlite"):
+        Base.metadata.create_all(bind=engine)
     yield
 
 

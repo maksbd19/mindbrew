@@ -8,15 +8,18 @@ export default function EditableSessionTitle({
   suggesting = false,
   disabled = false,
   onSave,
+  onRegenerate,
 }: {
   title: string;
   suggesting?: boolean;
   disabled?: boolean;
   onSave: (title: string) => Promise<void>;
+  onRegenerate?: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
   const [saving, setSaving] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -28,10 +31,10 @@ export default function EditableSessionTitle({
   }, [editing]);
 
   const startEditing = useCallback(() => {
-    if (disabled || saving || suggesting) return;
+    if (disabled || saving || suggesting || regenerating) return;
     setDraft(title);
     setEditing(true);
-  }, [disabled, saving, suggesting, title]);
+  }, [disabled, regenerating, saving, suggesting, title]);
 
   const cancelEditing = useCallback(() => {
     setDraft(title);
@@ -86,27 +89,49 @@ export default function EditableSessionTitle({
     );
   }
 
+  const handleRegenerate = useCallback(async () => {
+    if (!onRegenerate || disabled || saving || suggesting || regenerating) return;
+    setRegenerating(true);
+    try {
+      await onRegenerate();
+    } catch {
+      /* parent surfaces errors */
+    } finally {
+      setRegenerating(false);
+    }
+  }, [disabled, onRegenerate, regenerating, saving, suggesting]);
+
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <button
         type="button"
         onClick={startEditing}
-        disabled={disabled || saving || suggesting}
+        disabled={disabled || saving || suggesting || regenerating}
         title="Click to edit title"
         className={cn(
           pageTitle,
           "group min-w-0 truncate rounded-md px-1 py-0.5 text-left transition-colors",
           "hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
-          (disabled || saving || suggesting) && "cursor-default hover:bg-transparent"
+          (disabled || saving || suggesting || regenerating) && "cursor-default hover:bg-transparent"
         )}
       >
         {displayTitle}
-        {!disabled && !saving && !suggesting && (
+        {!disabled && !saving && !suggesting && !regenerating && (
           <span className="ml-2 text-[12px] font-normal text-muted opacity-0 transition-opacity group-hover:opacity-100">
             Edit
           </span>
         )}
       </button>
+      {onRegenerate && !disabled && (
+        <button
+          type="button"
+          onClick={() => void handleRegenerate()}
+          disabled={saving || suggesting || regenerating}
+          className="shrink-0 text-[12px] text-muted transition-colors hover:text-accent disabled:opacity-50"
+        >
+          {regenerating ? "Regenerating…" : "Regenerate"}
+        </button>
+      )}
       {suggesting && (
         <span className="shrink-0 text-[12px] text-muted">Generating title…</span>
       )}

@@ -13,7 +13,6 @@ _FIELD_ENV = {
     "nebius_model": "NEBIUS_MODEL",
     "nebius_base_url": "NEBIUS_BASE_URL",
     "brewmind_offline": "BREWMIND_OFFLINE",
-    "fba_python": "FBA_PYTHON",
     "max_revisions": "MAX_REVISIONS",
     "literature_retrieval_enabled": "LITERATURE_RETRIEVAL_ENABLED",
     "lamin_public_dbs": "LAMIN_PUBLIC_DBS",
@@ -42,7 +41,6 @@ class Settings(BaseSettings):
     nebius_model: str
     nebius_base_url: str
     brewmind_offline: bool
-    fba_python: str = "python"  # deprecated; FBA uses direct import when --extra fba installed
     max_revisions: int
     literature_retrieval_enabled: bool = True
     lamin_public_dbs: str = "laminlabs/cellxgene"

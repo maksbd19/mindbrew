@@ -103,7 +103,7 @@ export default function SessionDetailPage() {
   const [actionError, setActionError] = useState("");
   const [deciding, setDeciding] = useState(false);
   const [restarting, setRestarting] = useState(false);
-  const [pendingAction, setPendingAction] = useState<"proceed" | "revise" | "restart" | null>(null);
+  const [pendingAction, setPendingAction] = useState<"proceed" | "revise" | "reject" | "restart" | null>(null);
   const [titleSuggesting, setTitleSuggesting] = useState(false);
   const [selectedPathwayId, setSelectedPathwayId] = useState<string | null>(null);
   const lastSeqRef = useRef(0);
@@ -356,7 +356,7 @@ export default function SessionDetailPage() {
     }
   }
 
-  async function sendDecision(action: "proceed" | "revise", opts: Record<string, unknown> = {}) {
+  async function sendDecision(action: "proceed" | "revise" | "reject", opts: Record<string, unknown> = {}) {
     const stepId = session?.current_step || viewStep;
     setActionError("");
     setDeciding(true);
@@ -446,6 +446,12 @@ export default function SessionDetailPage() {
     }
   }
 
+  async function handleTitleRegenerate() {
+    setActionError("");
+    const updated = await suggestSessionTitle(sessionId, true);
+    applySession(updated);
+  }
+
   const proceedBlocked = proceedBlockReason(viewStep, artifact);
   const agentStatus =
     artifact?.brief && typeof artifact.brief === "object"
@@ -479,7 +485,9 @@ export default function SessionDetailPage() {
         ? "Restarting this step — prior step results are kept…"
       : pendingAction === "proceed"
         ? "Proceeding to the next step — this may take a minute…"
-        : "Agent is working on the current step…";
+        : pendingAction === "reject"
+          ? "Rejecting this session…"
+          : "Agent is working on the current step…";
 
   return (
     <div className="flex min-h-[calc(100dvh-3.5rem)] w-full flex-col overflow-x-hidden">
@@ -493,6 +501,7 @@ export default function SessionDetailPage() {
               title={session?.title || ""}
               suggesting={titleSuggesting}
               onSave={handleTitleSave}
+              onRegenerate={handleTitleRegenerate}
             />
             <div className={actionBar}>
               {session && (
@@ -614,6 +623,11 @@ export default function SessionDetailPage() {
                 busy={deciding || restarting}
                 onRestart={handleRestartStep}
                 onProceed={(opts) => sendDecision("proceed", opts)}
+                onReject={() => {
+                  if (window.confirm("Reject this session? The run will stop and cannot be resumed.")) {
+                    void sendDecision("reject");
+                  }
+                }}
               />
             )}
           </div>
