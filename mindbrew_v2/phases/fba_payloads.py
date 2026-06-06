@@ -73,31 +73,53 @@ def build_wax_ester_reactions(
 
 def resolve_knockouts(find_ids: dict, tokens: set[str]) -> list[str]:
     knockouts: list[str] = []
-
-    for row in find_ids.get("peroxisomal_acyl_coa_oxidases", []):
-        rid = row.get("id") if isinstance(row, dict) else row
-        if rid and rid not in knockouts:
-            knockouts.append(rid)
-
     alias_map = find_ids.get("gene_alias_resolution", {})
+
     for token in tokens:
         for gene, hits in alias_map.items():
-            if gene in token or token in gene:
+            if token == gene.upper() or token.startswith(gene.upper()):
                 for hit in hits:
                     if hit.get("type") == "reaction":
                         rid = hit.get("id")
                         if rid and rid not in knockouts:
                             knockouts.append(rid)
 
-    if any("DGA" in token or "LRO" in token or "TAG" in token for token in tokens):
-        for gene in ("DGA1", "LRO1", "ARE1"):
+    if any("DGA" in token or "LRO" in token or "TAG" in token or "POX" in token for token in tokens):
+        for gene in ("POX1", "POX2", "POX3", "POX4", "POX5", "POX6", "DGA1", "LRO1", "ARE1"):
             for hit in alias_map.get(gene, []):
                 if hit.get("type") == "reaction":
                     rid = hit.get("id")
                     if rid and rid not in knockouts:
                         knockouts.append(rid)
 
-    return knockouts[:5]
+    return knockouts
+
+
+def build_generic_reactions(cand: PathwayCandidate, recommended: dict) -> list[CandidateReaction] | None:
+    """Best-effort mapping when wax FAR/WS template does not apply."""
+    oleoyl = recommended.get("oleoyl_coa_metabolite")
+    if not oleoyl or not cand.reaction_steps:
+        return None
+    reactions: list[CandidateReaction] = []
+    for index, step in enumerate(cand.reaction_steps, start=1):
+        rxn_id = step.enzyme_name or step.gene_names[0] if step.gene_names else f"RXN_{index}"
+        rxn_id = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in rxn_id.upper())[:20]
+        stoich: dict[str, float] = {}
+        if step.substrates:
+            stoich[oleoyl] = stoich.get(oleoyl, 0) - 1.0
+        if step.products:
+            stoich[PRODUCT_METABOLITE] = stoich.get(PRODUCT_METABOLITE, 0) + 1.0
+        if not stoich:
+            continue
+        reactions.append(
+            CandidateReaction(
+                id=rxn_id,
+                name=step.description or rxn_id,
+                stoichiometry=stoich,
+                gene_associations=list(step.gene_names),
+            )
+        )
+    return reactions or None
 
 
 def build_payload_from_find_ids(
@@ -109,10 +131,18 @@ def build_payload_from_find_ids(
     tokens = collect_enzyme_tokens(cand)
     has_far, has_ws = has_far_ws(tokens)
 
-    if not has_far and not has_ws:
-        return None
+    reactions: list[CandidateReaction] | None = None
+    substrate_moles = 1.0
+    product = PRODUCT_METABOLITE
 
-    reactions = build_wax_ester_reactions(recommended, has_far, has_ws)
+    if has_far or has_ws:
+        reactions = build_wax_ester_reactions(recommended, has_far, has_ws)
+        substrate_moles = WAX_SUBSTRATE_MOLES
+        product = PRODUCT_METABOLITE
+    else:
+        reactions = build_generic_reactions(cand, recommended)
+        product = PRODUCT_METABOLITE
+
     if not reactions:
         return None
 
@@ -126,9 +156,21 @@ def build_payload_from_find_ids(
         scenario=gem.scenario,
         carbon_source_rxn=carbon_source,
         candidate_reactions=reactions,
-        product_metabolite=PRODUCT_METABOLITE,
+        product_metabolite=product,
         knockouts=resolve_knockouts(find_ids, tokens),
-        substrate_moles_per_product=WAX_SUBSTRATE_MOLES,
+        substrate_moles_per_product=substrate_moles,
         objective="product",
         source_citations=cand.citations,
     )
+
+
+def summarize_find_ids(find_ids: dict) -> dict:
+    recommended = find_ids.get("recommended", {})
+    summary = find_ids.get("summary", {})
+    return {
+        "status": find_ids.get("status"),
+        "carbon_source_rxn": recommended.get("carbon_source_rxn"),
+        "oleoyl_coa_metabolite": recommended.get("oleoyl_coa_metabolite"),
+        "has_gene_associations": summary.get("has_gene_associations"),
+        "peroxisomal_acyl_coa_oxidases": find_ids.get("peroxisomal_acyl_coa_oxidases", []),
+    }

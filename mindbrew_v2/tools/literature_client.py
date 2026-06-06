@@ -56,10 +56,15 @@ Return compact JSON: at most 5 pathways, at most 6 reaction_steps each, at most 
     return prompt
 
 
-def search_pathways(brief: ResearchBrief, revision_notes: str | None = None) -> list[dict[str, Any]]:
+def search_pathways(
+    brief: ResearchBrief,
+    revision_notes: str | None = None,
+    context_docs: list[RetrievedDocument] | None = None,
+) -> list[dict[str, Any]]:
     from mindbrew_v2.progress import log
 
-    context_docs = retrieve_literature_context(brief)
+    if context_docs is None:
+        context_docs = retrieve_literature_context(brief)
     prompt = build_literature_prompt(brief, revision_notes, context_docs)
 
     if is_offline():
@@ -76,6 +81,6 @@ def search_pathways(brief: ResearchBrief, revision_notes: str | None = None) -> 
     log(f"Extracted {len(candidates)} pathway candidate(s)")
     if provenance:
         for candidate in candidates:
-            existing = candidate.get("biomni_provenance") or []
-            candidate["biomni_provenance"] = list(dict.fromkeys([*existing, *provenance]))
+            existing = candidate.get("literature_provenance") or candidate.get("biomni_provenance") or []
+            candidate["literature_provenance"] = list(dict.fromkeys([*existing, *provenance]))
     return candidates

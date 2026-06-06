@@ -22,6 +22,11 @@ _FIELD_ENV = {
     "literature_max_crossref_hits": "LITERATURE_MAX_CROSSREF_HITS",
     "literature_context_max_chars": "LITERATURE_CONTEXT_MAX_CHARS",
     "progress_heartbeat_interval_sec": "PROGRESS_HEARTBEAT_INTERVAL_SEC",
+    "gem_model_cache_dir": "GEM_MODEL_CACHE_DIR",
+    "langsmith_api_key": "LANGSMITH_API_KEY",
+    "langsmith_project": "LANGSMITH_PROJECT",
+    "otel_exporter_otlp_endpoint": "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "otel_service_name": "OTEL_SERVICE_NAME",
 }
 
 
@@ -50,6 +55,11 @@ class Settings(BaseSettings):
     literature_max_crossref_hits: int = 5
     literature_context_max_chars: int = 8000
     progress_heartbeat_interval_sec: int = 15
+    gem_model_cache_dir: str = "data/gem_models"
+    langsmith_api_key: str | None = None
+    langsmith_project: str = "brewmind"
+    otel_exporter_otlp_endpoint: str | None = None
+    otel_service_name: str = "brewmind-api"
 
     def lamin_public_db_list(self) -> list[str]:
         return [item.strip() for item in self.lamin_public_dbs.split(",") if item.strip()]

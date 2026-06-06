@@ -24,7 +24,7 @@ def test_compute_confidence_factors():
             Citation(doi="10.1002/bit.26067", validation_status="verified", url="https://doi.org/10.1002/bit.26067"),
         ],
         reported_titer="1 g/L",
-        biomni_provenance=["literature_search"],
+        literature_provenance=["literature_search"],
         confidence="strong",
     )
     factors = compute_confidence_factors(candidate)

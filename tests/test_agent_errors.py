@@ -34,10 +34,10 @@ def test_format_agent_error_langgraph_wrapper():
     class TaskError(Exception):
         pass
 
-    wrapped = TaskError("During task with name 'biomni_search'")
+    wrapped = TaskError("During task with name 'literature_search'")
     wrapped.__cause__ = root
     message = format_agent_error(wrapped)
-    assert "biomni_search" not in message
+    assert "literature_search" not in message
     assert "Expecting" not in message
 
 

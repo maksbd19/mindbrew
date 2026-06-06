@@ -92,7 +92,7 @@ def _pathway_candidates(text: str) -> list[dict[str, Any]]:
             "reported_titer": "1.5 g/L literature",
             "confidence": "strong",
             "confidence_rationale": "Direct literature precedent with reported titer in Y. lipolytica for wax ester production.",
-            "biomni_provenance": ["literature_search", "kegg_pathway"],
+            "literature_provenance": ["literature_search", "kegg_pathway"],
         },
         {
             "id": "pw_fatty_alcohol",
@@ -111,7 +111,7 @@ def _pathway_candidates(text: str) -> list[dict[str, Any]]:
             "citations": [{"pmid": "12345678", "title": "Fatty alcohol emollients"}],
             "confidence": "partial",
             "confidence_rationale": "FAR route known but emollient profile for this target function not directly demonstrated.",
-            "biomni_provenance": ["literature_search"],
+            "literature_provenance": ["literature_search"],
         },
     ]
 

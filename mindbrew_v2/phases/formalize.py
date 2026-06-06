@@ -3,32 +3,82 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from mindbrew_v2.config.gem import select_gem
-from mindbrew_v2.models import GemProfile, PathwayCandidate, ResearchBrief, ScorePathwayPayload
-from mindbrew_v2.phases.fba_payloads import build_payload_from_find_ids
-from mindbrew_v2.tools.fba_client import run_find_ids
+from mindbrew_v2.models import (
+    GemDiscoveryResult,
+    GemProfile,
+    PathwayCandidate,
+    ResearchBrief,
+    ScorePathwayPayload,
+    ValidationMode,
+)
+from mindbrew_v2.phases.fba_payloads import build_payload_from_find_ids, summarize_find_ids
+from mindbrew_v2.phases.gem_discovery import discover_gem
+from mindbrew_v2.tools.fba_client import run_biomass_validation, run_find_ids
+from mindbrew_v2.tools.literature_retrieval import RetrievedDocument
+
+
+@dataclass
+class FormalizeResult:
+    gem: GemProfile | None = None
+    payloads: list[ScorePathwayPayload] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    discovery: GemDiscoveryResult | None = None
+    find_ids_summary: dict | None = None
+    biomass_validation: dict | None = None
+    biomass_validation_warning: str | None = None
+    validation_mode: ValidationMode = ValidationMode.LITERATURE_PATHWAY
 
 
 def formalize_pathways(
     brief: ResearchBrief,
     candidates: list[PathwayCandidate],
+    *,
+    literature_context: list[RetrievedDocument] | None = None,
     gem_override: str | None = None,
-) -> tuple[GemProfile | None, list[ScorePathwayPayload], list[str]]:
+    discovery: GemDiscoveryResult | None = None,
+) -> FormalizeResult:
     from mindbrew_v2.progress import log
 
     log(f"Formalizing {len(candidates)} pathway(s) for FBA…")
-    selection = select_gem(brief, override_gem_id=gem_override)
+    resolved_discovery = discovery or discover_gem(brief, candidates, literature_context)
+    selection = select_gem(brief, resolved_discovery, override_gem_id=gem_override)
+
     if selection.gem is None:
-        return None, [], ["No GEM available — use literature pathway branch"]
+        return FormalizeResult(
+            skipped=["No GEM available — use literature pathway branch"],
+            discovery=selection.discovery or resolved_discovery,
+            validation_mode=ValidationMode.LITERATURE_PATHWAY,
+        )
 
     gem = selection.gem
-    log(f"Selected GEM {gem.gem_id} ({gem.model_ref})")
+    log(f"Selected GEM {gem.gem_id} ({gem.model_name}) at {gem.model_cache_path}")
+
     find_ids = run_find_ids(gem.model_ref)
+    if find_ids.get("status") != "ok":
+        message = find_ids.get("message", "find_ids failed")
+        return FormalizeResult(
+            gem=gem,
+            skipped=[f"find_ids preflight failed: {message}"],
+            discovery=selection.discovery,
+            find_ids_summary=summarize_find_ids(find_ids),
+            validation_mode=ValidationMode.LITERATURE_PATHWAY,
+        )
+
+    biomass_validation = run_biomass_validation(gem)
+    biomass_warning = None
+    if biomass_validation.get("status") != "optimal":
+        biomass_warning = (
+            f"Biomass validation non-optimal (status={biomass_validation.get('status')}) — "
+            "product flux ranking is exploratory until medium is calibrated."
+        )
+        log(biomass_warning, level="warning")
+
     payloads: list[ScorePathwayPayload] = []
     skipped: list[str] = []
-
     for cand in candidates:
         payload = build_payload_from_find_ids(cand, gem, find_ids)
         if payload:
@@ -37,7 +87,16 @@ def formalize_pathways(
             skipped.append(f"{cand.id}: could not map enzymes to model reactions")
 
     log(f"Formalization complete: {len(payloads)} payload(s), {len(skipped)} skipped")
-    return gem, payloads, skipped
+    return FormalizeResult(
+        gem=gem,
+        payloads=payloads,
+        skipped=skipped,
+        discovery=selection.discovery,
+        find_ids_summary=summarize_find_ids(find_ids),
+        biomass_validation=biomass_validation,
+        biomass_validation_warning=biomass_warning,
+        validation_mode=ValidationMode.FBA,
+    )
 
 
 def load_fixture_payload(path: str) -> ScorePathwayPayload:

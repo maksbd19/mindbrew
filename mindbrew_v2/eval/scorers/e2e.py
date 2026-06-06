@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from mindbrew_v2.config.gem import select_gem
+from mindbrew_v2.config.gem import provisional_validation_mode
 from mindbrew_v2.eval.scorers.base import EvalCase, EvalResult
 from mindbrew_v2.models import PathwayCandidate, Ticket, ValidationMode
-from mindbrew_v2.phases.biomni import run_biomni_search
+from mindbrew_v2.phases.literature_search import run_literature_search
 from mindbrew_v2.phases.intake import run_intake
 from mindbrew_v2.phases.literature_plan import build_literature_plan
 from mindbrew_v2.phases.report import generate_report
@@ -16,8 +16,8 @@ def score_e2e(case: EvalCase) -> EvalResult:
     raw = case.input.get("raw_brief", "")
     ticket = Ticket(id=case.id, raw_brief=raw)
     brief = run_intake(ticket)
-    selection = select_gem(brief)
-    candidates = run_biomni_search(brief)
+    selection = provisional_validation_mode(brief)
+    candidates = run_literature_search(brief)[0]
 
     for assertion in case.assertions:
         atype = assertion.get("type")

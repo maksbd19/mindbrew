@@ -115,6 +115,9 @@ export default function ArtifactView({
           }>) ?? []}
           skipped={artifact.skipped as string[] | undefined}
           gemProfile={artifact.gem_profile as Record<string, unknown> | null}
+          gemDiscovery={artifact.gem_discovery as Record<string, unknown> | null}
+          biomassValidationWarning={artifact.biomass_validation_warning as string | null}
+          findIdsSummary={artifact.find_ids_summary as Record<string, unknown> | null}
           selectedPathway={fbaContext?.selectedPathway ?? null}
           priorRuns={fbaContext?.priorRuns}
           resolvePathwayName={fbaContext?.resolvePathwayName}

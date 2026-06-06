@@ -1,4 +1,4 @@
-"""GEM registry and selector — query-driven model_ref selection."""
+"""GEM registry and selector — literature-driven model resolution."""
 
 from __future__ import annotations
 
@@ -7,20 +7,32 @@ from pathlib import Path
 
 import yaml
 
-from mindbrew_v2.models import GemProfile, GemSelectionResult, ResearchBrief, ValidationMode
+from mindbrew_v2.models import (
+    GemDiscoveryResult,
+    GemProfile,
+    GemSelectionResult,
+    PathwayCandidate,
+    ResearchBrief,
+    ValidationMode,
+)
+from mindbrew_v2.tools.gem_model_cache import ensure_model
 
 REGISTRY_PATH = Path(__file__).parent / "gem_registry.yaml"
-VENDOR_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+FBA_SCENARIOS = PROJECT_ROOT / "vendor" / "FBA_Analysis" / "scenarios"
 
 
 @dataclass
 class GemEntry:
     id: str
     model_ref: str | None
+    model_name: str
     organism_aliases: list[str]
     product_classes: list[str]
     feedstock_classes: list[str]
     scenarios: dict
+    biomass_validation_scenario: str
+    validation_paper_doi: str
     priority: int
     enabled: bool
 
@@ -38,10 +50,13 @@ def load_registry() -> list[GemEntry]:
             GemEntry(
                 id=g["id"],
                 model_ref=g.get("model_ref"),
+                model_name=g.get("model_name", g["id"]),
                 organism_aliases=[a.lower() for a in g.get("organism_aliases", [])],
                 product_classes=[p.lower() for p in g.get("product_classes", [])],
                 feedstock_classes=[f.lower() for f in g.get("feedstock_classes", [])],
                 scenarios=g.get("scenarios", {}),
+                biomass_validation_scenario=g.get("biomass_validation_scenario", ""),
+                validation_paper_doi=g.get("validation_paper_doi", ""),
                 priority=g.get("priority", 0),
                 enabled=g.get("enabled", True),
             )
@@ -51,6 +66,32 @@ def load_registry() -> list[GemEntry]:
 
 def _normalize(s: str) -> str:
     return s.lower().strip()
+
+
+def resolve_scenario_path(entry: GemEntry, feedstock_class: str) -> str:
+    scenarios = entry.scenarios
+    default = scenarios.get("default", "")
+    by_feed = scenarios.get("by_feedstock", {})
+    fc = _normalize(feedstock_class)
+    chosen = default
+    for key, val in by_feed.items():
+        if key.lower() in fc or fc in key.lower():
+            chosen = val
+            break
+    if not chosen:
+        return ""
+    if chosen.startswith("vendor/"):
+        return str(PROJECT_ROOT / chosen)
+    return str(FBA_SCENARIOS / chosen)
+
+
+def resolve_biomass_scenario(entry: GemEntry) -> str:
+    name = entry.biomass_validation_scenario
+    if not name:
+        return ""
+    if name.startswith("vendor/"):
+        return str(PROJECT_ROOT / name)
+    return str(FBA_SCENARIOS / name)
 
 
 def _organism_match(brief: ResearchBrief, entry: GemEntry) -> int:
@@ -72,112 +113,147 @@ def _class_match(value: str, allowed: list[str]) -> bool:
     return any(a in v or v in a for a in allowed)
 
 
-def resolve_scenario(entry: GemEntry, feedstock_class: str) -> str:
-    scenarios = entry.scenarios
-    default = scenarios.get("default", "")
-    by_feed = scenarios.get("by_feedstock", {})
-    fc = _normalize(feedstock_class)
-    for key, val in by_feed.items():
-        if key.lower() in fc or fc in key.lower():
-            if not val.startswith("vendor/"):
-                return str(VENDOR_ROOT / "vendor/FBA_Analysis/scenarios" / val)
-            return str(VENDOR_ROOT / val.replace("vendor/", "vendor/"))
-    if default.startswith("vendor/"):
-        return str(VENDOR_ROOT / default.replace("vendor/", "vendor/"))
-    return default
-
-
-def select_gem(brief: ResearchBrief, override_gem_id: str | None = None) -> GemSelectionResult:
-    entries = load_registry()
-    if override_gem_id:
-        for e in entries:
-            if e.id == override_gem_id and e.model_ref:
-                fc = brief.feedstock.compound_class or "plant_oil"
-                return GemSelectionResult(
-                    gem=GemProfile(
-                        gem_id=e.id,
-                        model_ref=e.model_ref,
-                        scenario=resolve_scenario(e, fc),
-                        organism=brief.organism[0] if brief.organism else "",
-                        feedstock_class=fc,
-                    ),
-                    validation_mode=ValidationMode.FBA,
-                    reason=f"Human override: {override_gem_id}",
-                )
-
-    feedstock_class = brief.feedstock.compound_class or "plant_oil"
+def _score_entry(brief: ResearchBrief, entry: GemEntry) -> int:
+    if not entry.model_ref:
+        return 0
+    score = _organism_match(brief, entry)
     target_class = brief.target.compound_class or ""
+    feedstock_class = brief.feedstock.compound_class or "plant_oil"
+    if target_class and not _class_match(target_class, entry.product_classes):
+        if score == 0:
+            return 0
+        score += 1
+    if feedstock_class and not _class_match(feedstock_class, entry.feedstock_classes):
+        if score == 0:
+            return 0
+        score += 1
+    if score == 0 and not brief.organism:
+        return 0
+    return score
 
+
+def match_registry_entry(
+    discovery: GemDiscoveryResult,
+    brief: ResearchBrief,
+) -> GemEntry | None:
+    entries = load_registry()
+    model_name_l = _normalize(discovery.model_name)
+    if discovery.model_id:
+        for entry in entries:
+            if entry.id == discovery.model_id:
+                return entry
+    for entry in entries:
+        if model_name_l and model_name_l in _normalize(entry.model_name):
+            return entry
+        if model_name_l and model_name_l in _normalize(entry.id):
+            return entry
     best: GemEntry | None = None
     best_score = 0
-
     for entry in entries:
-        if not entry.model_ref:
-            continue
-        score = _organism_match(brief, entry)
-        if target_class and not _class_match(target_class, entry.product_classes):
-            if score == 0:
-                continue
-            score += 1
-        if feedstock_class and not _class_match(feedstock_class, entry.feedstock_classes):
-            if score == 0:
-                continue
-            score += 1
+        score = _score_entry(brief, entry)
         if score > best_score:
             best_score = score
             best = entry
+    return best if best_score > 0 else None
 
-    if best is None or best_score == 0:
-        inferred = _infer_default_gem(brief, entries)
-        if inferred:
-            best = inferred
-            best_score = 1
 
-    if best is None or not best.model_ref:
+def build_gem_profile(
+    entry: GemEntry,
+    brief: ResearchBrief,
+    *,
+    discovery: GemDiscoveryResult | None = None,
+    sbml_url: str | None = None,
+) -> tuple[GemProfile | None, str]:
+    feedstock_class = brief.feedstock.compound_class or "plant_oil"
+    cache_path, source, error = ensure_model(
+        entry.id,
+        entry.model_ref,
+        model_name=entry.model_name,
+        sbml_url=sbml_url,
+        source_doi=(discovery.validation_paper.doi if discovery and discovery.validation_paper else entry.validation_paper_doi),
+    )
+    if not cache_path:
+        return None, error or "Model not available in cache"
+
+    discovery = discovery or GemDiscoveryResult(
+        organism=brief.organism[0] if brief.organism else entry.organism_aliases[0],
+        model_name=entry.model_name,
+        model_id=entry.id,
+    )
+    return GemProfile(
+        gem_id=entry.id,
+        model_ref=cache_path,
+        model_cache_path=cache_path,
+        cache_source=source or "",
+        scenario=resolve_scenario_path(entry, feedstock_class),
+        biomass_validation_scenario=resolve_biomass_scenario(entry),
+        organism=brief.organism[0] if brief.organism else entry.organism_aliases[0],
+        feedstock_class=feedstock_class,
+        model_name=entry.model_name,
+        discovery_rationale=discovery.rationale,
+        discovery_confidence=discovery.confidence,
+        validation_paper=discovery.validation_paper,
+        literature_refs=discovery.literature_refs,
+    ), ""
+
+
+def provisional_validation_mode(brief: ResearchBrief) -> GemSelectionResult:
+    """Intake-only hint: FBA possible if registry has a plausible match."""
+    entries = load_registry()
+    for entry in entries:
+        if _score_entry(brief, entry) > 0:
+            return GemSelectionResult(
+                gem=None,
+                validation_mode=ValidationMode.FBA,
+                reason="Registry may support FBA — GEM resolved after literature search",
+            )
+    return GemSelectionResult(
+        gem=None,
+        validation_mode=ValidationMode.LITERATURE_PATHWAY,
+        reason="No registry match — literature pathway validation",
+    )
+
+
+def select_gem(
+    brief: ResearchBrief,
+    discovery: GemDiscoveryResult,
+    override_gem_id: str | None = None,
+) -> GemSelectionResult:
+    entries = load_registry()
+    entry: GemEntry | None = None
+
+    if override_gem_id:
+        entry = next((e for e in entries if e.id == override_gem_id), None)
+    else:
+        entry = match_registry_entry(discovery, brief)
+
+    if entry is None:
         return GemSelectionResult(
             gem=None,
             validation_mode=ValidationMode.LITERATURE_PATHWAY,
-            reason="No GEM matches organism/feedstock/product classes in registry",
+            reason=f"No local SBML for {discovery.model_name or 'discovered model'}",
+            discovery=discovery,
         )
 
-    model_path = best.model_ref
-    if not Path(model_path).is_absolute():
-        model_path = str(VENDOR_ROOT / model_path.replace("vendor/FBA_Analysis/", "").replace("vendor/", ""))
+    gem, error = build_gem_profile(entry, brief, discovery=discovery, sbml_url=discovery.sbml_url)
+    if gem is None:
+        discovery.sbml_available_locally = False
+        return GemSelectionResult(
+            gem=None,
+            validation_mode=ValidationMode.LITERATURE_PATHWAY,
+            reason=error,
+            discovery=discovery,
+        )
 
+    discovery.sbml_available_locally = True
+    discovery.model_id = entry.id
     return GemSelectionResult(
-        gem=GemProfile(
-            gem_id=best.id,
-            model_ref=model_path,
-            scenario=resolve_scenario(best, feedstock_class),
-            organism=brief.organism[0] if brief.organism else best.organism_aliases[0],
-            feedstock_class=feedstock_class,
-        ),
+        gem=gem,
         validation_mode=ValidationMode.FBA,
-        reason=f"Matched {best.id} (score={best_score})",
+        reason=f"Resolved {entry.model_name} from cache ({gem.cache_source})",
+        discovery=discovery,
     )
 
 
-def _infer_default_gem(brief: ResearchBrief, entries: list[GemEntry]) -> GemEntry | None:
-    """Infer Y. lipolytica + plant oil for lipid/wax tickets when organism omitted."""
-    text = _normalize(brief.raw_brief + " " + brief.target_function)
-    lipid_signals = any(
-        k in text
-        for k in (
-            "plant oil",
-            "wax",
-            "lipid",
-            "silicone",
-            "dimethicone",
-            "cuticle",
-            "ceramide",
-            "emollient",
-        )
-    )
-    microbiome_signals = any(k in text for k in ("microbiome", "dandruff", "scalp", "postbiotic"))
-    if microbiome_signals:
-        return None
-    if lipid_signals:
-        for e in entries:
-            if e.id == "iyli647":
-                return e
-    return None
+def registry_entry_by_id(gem_id: str) -> GemEntry | None:
+    return next((e for e in load_registry() if e.id == gem_id), None)

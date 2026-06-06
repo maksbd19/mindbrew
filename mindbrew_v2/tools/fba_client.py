@@ -10,6 +10,7 @@ from mindbrew_v2.models import (
     Bottleneck,
     Citation,
     FBAValidationResult,
+    GemProfile,
     ScorePathwayPayload,
 )
 from mindbrew_v2.settings import is_offline
@@ -47,26 +48,81 @@ def run_find_ids(model_ref: str) -> dict[str, Any]:
 
     import time
 
-    from mindbrew_v2.progress import log, log_timing
+    from mindbrew_v2.progress import log, tool_end, tool_start
+    from mindbrew_v2.telemetry import start_span
 
-    log(f"FBA find_ids running for {model_ref}…")
+    tool_id = "fba.find_ids"
+    label = f"FBA find_ids ({model_ref})"
+    tool_start(tool_id, label)
     started = time.perf_counter()
 
-    try:
-        build_report, _ = _fba_imports()
-        report = build_report(model_ref, [])
-        if report.get("status") == "ok":
-            log_timing(f"FBA find_ids ({model_ref})", time.perf_counter() - started)
-            return report
-        message = report.get("message", report)
-        log(f"FBA find_ids preflight failed: {message}", level="error")
-        raise RuntimeError(f"FBA find_ids preflight failed for {model_ref}: {message}")
-    except ImportError as exc:
-        log(str(exc), level="error")
-        raise
-    except Exception as exc:
-        log(f"FBA find_ids error: {exc}", level="error")
-        raise RuntimeError(f"FBA find_ids failed for {model_ref}") from exc
+    with start_span("tool.call", {"tool_id": tool_id, "model_ref": model_ref}):
+        try:
+            build_report, _ = _fba_imports()
+            report = build_report(model_ref, [])
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            if report.get("status") == "ok":
+                tool_end(tool_id, label, duration_ms=duration_ms, status="ok")
+                log(f"FBA find_ids finished in {duration_ms / 1000:.1f}s")
+                return report
+            message = report.get("message", report)
+            tool_end(tool_id, label, duration_ms=duration_ms, status="error")
+            log(f"FBA find_ids preflight failed: {message}", level="error")
+            raise RuntimeError(f"FBA find_ids preflight failed for {model_ref}: {message}")
+        except ImportError as exc:
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            tool_end(tool_id, label, duration_ms=duration_ms, status="error")
+            log(str(exc), level="error")
+            raise
+        except Exception as exc:
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            tool_end(tool_id, label, duration_ms=duration_ms, status="error")
+            log(f"FBA find_ids error: {exc}", level="error")
+            raise RuntimeError(f"FBA find_ids failed for {model_ref}") from exc
+
+
+def run_biomass_validation(gem: GemProfile) -> dict[str, Any]:
+    if is_offline():
+        return {
+            "status": "optimal",
+            "growth_rate": 0.24,
+            "objective_used": "biomass",
+            "message": "Offline biomass validation stub",
+        }
+
+    if not gem.biomass_validation_scenario:
+        return {"status": "skipped", "message": "No biomass validation scenario configured"}
+
+    import time
+
+    from mindbrew_v2.progress import log, tool_end, tool_start
+    from mindbrew_v2.telemetry import start_span
+
+    tool_id = "fba.biomass_validation"
+    label = f"Biomass validation ({gem.gem_id})"
+    tool_start(tool_id, label)
+    started = time.perf_counter()
+
+    with start_span("tool.call", {"tool_id": tool_id, "gem_id": gem.gem_id}):
+        try:
+            _, sp = _fba_imports()
+            data = sp(
+                gem.model_ref,
+                scenario=gem.biomass_validation_scenario,
+                objective="biomass",
+            )
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            tool_end(tool_id, label, duration_ms=duration_ms, status="ok")
+            log(
+                f"Biomass validation ({gem.gem_id}, {data.get('status')}) "
+                f"finished in {duration_ms / 1000:.1f}s"
+            )
+            return data
+        except Exception as exc:
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            tool_end(tool_id, label, duration_ms=duration_ms, status="error")
+            log(f"Biomass validation error: {exc}", level="error")
+            return {"status": "error", "message": str(exc)}
 
 
 def score_pathway(payload: ScorePathwayPayload) -> FBAValidationResult:
@@ -75,26 +131,36 @@ def score_pathway(payload: ScorePathwayPayload) -> FBAValidationResult:
 
     import time
 
-    from mindbrew_v2.progress import log, log_timing
+    from mindbrew_v2.progress import log, tool_end, tool_start
+    from mindbrew_v2.telemetry import start_span
 
-    log(f"FBA score_pathway running for {payload.pathway_id}…")
+    tool_id = "fba.score_pathway"
+    label = f"FBA score_pathway ({payload.pathway_id})"
+    tool_start(tool_id, label)
     started = time.perf_counter()
 
-    try:
-        _, sp = _fba_imports()
-        data = sp(**_payload_to_fba_dict(payload))
-        parsed = _parse_fba_result(payload.pathway_id, data)
-        log_timing(
-            f"FBA score_pathway ({payload.pathway_id}, {parsed.status})",
-            time.perf_counter() - started,
-        )
-        return parsed
-    except ImportError as exc:
-        log(str(exc), level="error")
-        raise
-    except Exception as exc:
-        log(f"FBA score_pathway error for {payload.pathway_id}: {exc}", level="error")
-        raise RuntimeError(f"FBA score_pathway failed for {payload.pathway_id}") from exc
+    with start_span("tool.call", {"tool_id": tool_id, "pathway_id": payload.pathway_id}):
+        try:
+            _, sp = _fba_imports()
+            data = sp(**_payload_to_fba_dict(payload))
+            parsed = _parse_fba_result(payload.pathway_id, data)
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            tool_end(tool_id, label, duration_ms=duration_ms, status="ok")
+            log(
+                f"FBA score_pathway ({payload.pathway_id}, {parsed.status}) "
+                f"finished in {duration_ms / 1000:.1f}s"
+            )
+            return parsed
+        except ImportError as exc:
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            tool_end(tool_id, label, duration_ms=duration_ms, status="error")
+            log(str(exc), level="error")
+            raise
+        except Exception as exc:
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            tool_end(tool_id, label, duration_ms=duration_ms, status="error")
+            log(f"FBA score_pathway error for {payload.pathway_id}: {exc}", level="error")
+            raise RuntimeError(f"FBA score_pathway failed for {payload.pathway_id}") from exc
 
 
 def rank_fba_results(results: list[FBAValidationResult]) -> list[FBAValidationResult]:
@@ -130,6 +196,10 @@ def interpret_failures(result: FBAValidationResult, raw: dict | None = None) -> 
         reasons.append("Glucose side-door open — yield vs feedstock untrustworthy")
 
     calibration = raw.get("calibration", {})
+    confidence = calibration.get("confidence_level", result.calibration_level)
+    if confidence in ("exploratory", "invalid"):
+        reasons.append(f"Calibration tier {confidence} — relative ranking only")
+
     if calibration.get("confidence_level") == "invalid":
         reasons.append("Infeasible design — check medium constraints")
 
@@ -139,8 +209,16 @@ def interpret_failures(result: FBAValidationResult, raw: dict | None = None) -> 
         reasons.append(f"Knockout IDs not found: {not_found}")
 
     result.failure_reasons = reasons
+    result.edits_not_found = list(not_found)
 
-    if result.status == "optimal" and result.yield_corrected_mol_per_mol_substrate:
+    can_pass = (
+        result.status == "optimal"
+        and confidence not in ("exploratory", "invalid")
+        and carbon_audit.get("feedstock_is_sole_carbon_source") is not False
+        and not not_found
+    )
+
+    if can_pass and result.yield_corrected_mol_per_mol_substrate:
         y = result.yield_corrected_mol_per_mol_substrate
         if y >= 0.5 and not reasons:
             result.verdict = "pass"
@@ -161,12 +239,21 @@ def interpret_failures(result: FBAValidationResult, raw: dict | None = None) -> 
     return result
 
 
+def _reaction_spec(reaction) -> dict[str, Any]:
+    data = reaction.model_dump()
+    bounds = data.pop("bounds", (0.0, 1000.0))
+    data.pop("gene_associations", None)
+    data["lower_bound"] = bounds[0]
+    data["upper_bound"] = bounds[1]
+    return data
+
+
 def _payload_to_fba_dict(payload: ScorePathwayPayload) -> dict[str, Any]:
     return {
         "model_ref": payload.model_ref,
         "scenario": payload.scenario,
         "carbon_source_rxn": payload.carbon_source_rxn,
-        "candidate_reactions": [r.model_dump() for r in payload.candidate_reactions],
+        "candidate_reactions": [_reaction_spec(r) for r in payload.candidate_reactions],
         "product_metabolite": payload.product_metabolite,
         "knockouts": payload.knockouts,
         "substrate_moles_per_product": payload.substrate_moles_per_product,
@@ -185,7 +272,7 @@ def _parse_fba_result(pathway_id: str, data: dict) -> FBAValidationResult:
         for b in data.get("bottlenecks", [])
     ]
     calibration = data.get("calibration", {})
-    carbon = data.get("carbon_audit", {})
+    carbon = data.get("carbon_audit", {}) or {}
 
     lit_refs = _parse_literature_refs(calibration)
 
@@ -193,10 +280,13 @@ def _parse_fba_result(pathway_id: str, data: dict) -> FBAValidationResult:
         pathway_id=pathway_id,
         status=data.get("status", "unknown"),
         predicted_product_flux=data.get("predicted_product_flux"),
+        growth_rate=data.get("growth_rate"),
         yield_corrected_mol_per_mol_substrate=data.get("yield_corrected_mol_per_mol_substrate"),
         bottlenecks=bottlenecks,
         calibration_level=calibration.get("confidence_level", "exploratory"),
+        product_confidence_level=calibration.get("product_confidence_level", ""),
         carbon_audit_sole_source=carbon.get("feedstock_is_sole_carbon_source"),
+        carbon_audit=carbon,
         literature_refs=lit_refs,
     )
     return interpret_failures(result, data)
@@ -226,7 +316,7 @@ def _offline_find_ids() -> dict[str, Any]:
     return {
         "status": "ok",
         "recommended": {
-            "carbon_source_rxn": "EX_ole_e",
+            "carbon_source_rxn": "EX_ocdcea_LPAREN_e_RPAREN_",
             "oleoyl_coa_metabolite": "odecoa_c",
             "nadph_metabolite": "nadph_c",
             "nadp_metabolite": "nadp_c",
@@ -236,7 +326,11 @@ def _offline_find_ids() -> dict[str, Any]:
             {"id": "ACOAO8p", "name": "octadecenoyl-CoA oxidase (peroxisomal)"},
             {"id": "ACOAO4p", "name": "acyl-CoA oxidase (peroxisomal)"},
         ],
-        "gene_alias_resolution": {},
+        "gene_alias_resolution": {
+            "POX1": [{"type": "reaction", "id": "ACOAO8p"}],
+            "DGA1": [{"type": "reaction", "id": "DGA1"}],
+        },
+        "summary": {"has_gene_associations": True},
     }
 
 
@@ -246,19 +340,23 @@ def _offline_score(payload: ScorePathwayPayload) -> FBAValidationResult:
         data = {
             "status": "optimal",
             "predicted_product_flux": 0.42,
+            "growth_rate": 0.01,
             "yield_corrected_mol_per_mol_substrate": 0.65,
             "bottlenecks": [{"reaction": "TAG_synthesis", "flux": 0.1, "at_bound": False}],
             "calibration": {
                 "confidence_level": "partial",
+                "product_confidence_level": "unvalidated",
                 "recommended_use": "Rank designs relative to each other; bottlenecks informative",
                 "missing_literature_inputs": ["product exchange bound"],
             },
             "carbon_audit": {"feedstock_is_sole_carbon_source": True},
+            "edits_applied": {"not_found": []},
         }
     else:
         data = {
             "status": "optimal",
             "predicted_product_flux": 0.08,
+            "growth_rate": 0.01,
             "yield_corrected_mol_per_mol_substrate": 0.12,
             "bottlenecks": [
                 {"reaction": "ACOAO8p", "flux": 2.5, "at_bound": True},
@@ -266,9 +364,11 @@ def _offline_score(payload: ScorePathwayPayload) -> FBAValidationResult:
             ],
             "calibration": {
                 "confidence_level": "exploratory",
+                "product_confidence_level": "unvalidated",
                 "recommended_use": "Exploratory ranking only — medium not fully calibrated",
                 "warnings": ["β-oxidation not knocked out"],
             },
             "carbon_audit": {"feedstock_is_sole_carbon_source": True},
+            "edits_applied": {"not_found": []},
         }
     return _parse_fba_result(payload.pathway_id, data)

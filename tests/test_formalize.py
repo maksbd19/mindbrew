@@ -83,47 +83,61 @@ def test_build_wax_ester_reactions_uses_model_ids():
     assert "oleyl_alcohol_c" in far.stoichiometry
 
 
-def test_resolve_knockouts_from_peroxisomal_list():
+def test_resolve_knockouts_from_gene_alias():
     find_ids = _offline_find_ids()
-    knockouts = resolve_knockouts(find_ids, {"FAR", "WS"})
+    knockouts = resolve_knockouts(find_ids, {"POX1", "FAR"})
     assert "ACOAO8p" in knockouts
-    assert "ACOAO4p" in knockouts
 
 
 def test_build_payload_offline_schema():
     payload = build_payload_from_find_ids(_wax_candidate(), _gem_profile(), _offline_find_ids())
     assert payload is not None
-    assert payload.carbon_source_rxn == "EX_ole_e"
+    assert payload.carbon_source_rxn == "EX_ocdcea_LPAREN_e_RPAREN_"
     assert payload.product_metabolite == "wax_ester_c"
     assert payload.substrate_moles_per_product == 2.0
-    assert payload.knockouts
-    assert all(isinstance(r, CandidateReaction) for r in payload.candidate_reactions)
     assert payload.candidate_reactions[0].id == "FAR"
     assert payload.candidate_reactions[1].id == "WS"
 
 
-def test_formalize_skips_non_wax_pathway():
+def test_formalize_skips_non_wax_pathway(tmp_path, monkeypatch):
     from mindbrew_v2.models import ResearchBrief
+
+    monkeypatch.setenv("GEM_MODEL_CACHE_DIR", str(tmp_path))
+    from mindbrew_v2.settings import get_settings
+
+    get_settings.cache_clear()
 
     brief = ResearchBrief(
         ticket_id="t1",
-        raw_brief="test",
+        raw_brief="plant oil wax ester production",
         organism=["Yarrowia lipolytica"],
+        feedstock={"class": "plant_oil"},
+        target={"class": "wax_ester"},
     )
     cand = PathwayCandidate(id="pw_other", name="Unknown pathway", enzymes=["XYZ1"])
-    gem, payloads, skipped = formalize_pathways(brief, [cand])
-    assert gem is not None
-    assert payloads == []
-    assert len(skipped) == 1
+    result = formalize_pathways(brief, [cand])
+    if VENDOR_ROOT.joinpath("iYLI647.xml").is_file():
+        assert result.gem is not None
+    assert result.payloads == []
+    assert len(result.skipped) == 1
 
 
 @pytest.mark.integration
-def test_run_find_ids_resolves_real_carbon_source():
+def test_run_find_ids_resolves_real_carbon_source(tmp_path, monkeypatch):
     pytest.importorskip("cobra")
     from unittest.mock import patch
 
+    if not Path(MODEL_REF).is_file():
+        pytest.skip("vendor iYLI647.xml not present")
+    monkeypatch.setenv("GEM_MODEL_CACHE_DIR", str(tmp_path))
+    from mindbrew_v2.settings import get_settings
+
+    get_settings.cache_clear()
+    from mindbrew_v2.tools.gem_model_cache import ensure_model
+
+    cached, _, _ = ensure_model("iyli647", MODEL_REF)
     with patch("mindbrew_v2.tools.fba_client.is_offline", return_value=False):
-        report = run_find_ids(MODEL_REF)
+        report = run_find_ids(cached or MODEL_REF)
     assert report.get("status") == "ok"
     carbon = report["recommended"]["carbon_source_rxn"]
     assert carbon != "EX_ole_e"

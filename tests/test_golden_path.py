@@ -6,9 +6,9 @@ import pytest
 
 os.environ["BREWMIND_OFFLINE"] = "true"
 
-from mindbrew_v2.config.gem import select_gem
+from mindbrew_v2.config.gem import provisional_validation_mode
 from mindbrew_v2.models import Ticket, ValidationMode
-from mindbrew_v2.phases.biomni import run_biomni_search
+from mindbrew_v2.phases.literature_search import run_literature_search
 from mindbrew_v2.phases.formalize import formalize_pathways
 from mindbrew_v2.phases.intake import run_intake
 from mindbrew_v2.phases.report import generate_report
@@ -29,16 +29,16 @@ def test_ticket1_intake(ticket1_brief):
 
 
 def test_ticket1_gem_selection(ticket1_brief):
-    sel = select_gem(ticket1_brief)
+    sel = provisional_validation_mode(ticket1_brief)
     assert sel.validation_mode == ValidationMode.FBA
-    assert sel.gem is not None
-    assert sel.gem.gem_id == "iyli647"
+    assert sel.gem is None
 
 
 def test_ticket1_full_fba_pipeline(ticket1_brief):
-    candidates = run_biomni_search(ticket1_brief)
+    candidates = run_literature_search(ticket1_brief)[0]
     assert len(candidates) >= 1
-    gem, payloads, skipped = formalize_pathways(ticket1_brief, candidates)
+    result = formalize_pathways(ticket1_brief, candidates)
+    gem, payloads, skipped = result.gem, result.payloads, result.skipped
     assert gem is not None
     assert len(payloads) >= 1
     results = [score_pathway(p) for p in payloads]

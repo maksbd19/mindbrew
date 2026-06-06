@@ -13,5 +13,6 @@ web/.next/
 web/out/
 *.tsbuildinfo
 mindbrew_v2/eval/reports/
+data/gem_models/
 *.db
 .DS_Store

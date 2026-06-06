@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -14,6 +15,8 @@ from pydantic import BaseModel, ValidationError
 
 from mindbrew_v2.settings import get_settings, is_offline
 from mindbrew_v2.errors import StructuredExtractError
+from mindbrew_v2.progress import llm_call, log, log_timing
+from mindbrew_v2.telemetry import start_span
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -76,6 +79,36 @@ def parse_llm_json(text: str) -> Any:
     return json.loads(clean_llm_json_text(text))
 
 
+def _usage_from_message(response: BaseMessage) -> tuple[int | None, int | None]:
+    usage = getattr(response, "usage_metadata", None)
+    if not usage:
+        return None, None
+    if isinstance(usage, dict):
+        return usage.get("input_tokens"), usage.get("output_tokens")
+    return getattr(usage, "input_tokens", None), getattr(usage, "output_tokens", None)
+
+
+def _emit_llm_telemetry(
+    *,
+    role: str,
+    model: str,
+    started: float,
+    response: BaseMessage | None = None,
+    status: str = "ok",
+) -> None:
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    input_tokens, output_tokens = _usage_from_message(response) if response else (None, None)
+    llm_call(
+        role=role,
+        model=model,
+        duration_ms=duration_ms,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        status="error" if status == "error" else "ok",
+    )
+    log_timing(f"LLM [{role}]", time.perf_counter() - started)
+
+
 def _try_structured_output(llm: ChatOpenAI, schema: type[T], messages: list[BaseMessage]) -> T | None:
     for method in ("json_schema", "json_mode", "function_calling"):
         try:
@@ -100,10 +133,6 @@ def structured_extract(
     if is_offline():
         return _offline_structured(schema, prompt)
 
-    import time
-
-    from mindbrew_v2.progress import log, log_timing
-
     model = get_model_for_role(role)
     log(f"LLM [{role}] calling {model}…")
     started = time.perf_counter()
@@ -114,35 +143,44 @@ def structured_extract(
         HumanMessage(content=prompt),
     ]
 
-    structured = _try_structured_output(llm, schema, messages)
-    if structured is not None:
-        log_timing(f"LLM [{role}]", time.perf_counter() - started)
-        return structured
+    with start_span("llm.call", {"role": role, "model": model}):
+        structured = _try_structured_output(llm, schema, messages)
+        if structured is not None:
+            _emit_llm_telemetry(role=role, model=model, started=started)
+            return structured
 
-    last_error: Exception | None = None
-    for attempt in range(max_attempts):
-        response = llm.invoke(messages)
-        text = str(response.content)
-        try:
-            data = parse_llm_json(text)
-            result = schema.model_validate(data)
-            log_timing(f"LLM [{role}]", time.perf_counter() - started)
-            return result
-        except (json.JSONDecodeError, ValidationError) as exc:
-            last_error = exc
-            log(
-                f"LLM [{role}] structured parse failed "
-                f"(attempt {attempt + 1}/{max_attempts}): {exc}"
-            )
-            if attempt + 1 >= max_attempts:
-                break
-            messages = [
-                *messages,
-                AIMessage(content=text),
-                HumanMessage(content=_JSON_RETRY_HINT),
-            ]
+        last_error: Exception | None = None
+        last_response: AIMessage | None = None
+        for attempt in range(max_attempts):
+            response = llm.invoke(messages)
+            last_response = response if isinstance(response, AIMessage) else None
+            text = str(response.content)
+            try:
+                data = parse_llm_json(text)
+                result = schema.model_validate(data)
+                _emit_llm_telemetry(role=role, model=model, started=started, response=last_response)
+                return result
+            except (json.JSONDecodeError, ValidationError) as exc:
+                last_error = exc
+                log(
+                    f"LLM [{role}] structured parse failed "
+                    f"(attempt {attempt + 1}/{max_attempts}): {exc}"
+                )
+                if attempt + 1 >= max_attempts:
+                    break
+                messages = [
+                    *messages,
+                    AIMessage(content=text),
+                    HumanMessage(content=_JSON_RETRY_HINT),
+                ]
 
-    log_timing(f"LLM [{role}]", time.perf_counter() - started)
+        _emit_llm_telemetry(
+            role=role,
+            model=model,
+            started=started,
+            response=last_response,
+            status="error",
+        )
     assert last_error is not None
     raise StructuredExtractError(
         role=role,

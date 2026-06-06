@@ -10,6 +10,9 @@ const TYPE_LABELS: Record<string, string> = {
   heartbeat: "heartbeat",
   node_start: "start",
   node_end: "done",
+  tool_start: "tool",
+  tool_end: "tool",
+  llm_call: "llm",
   step_start: "step",
   step_complete: "step",
   decision_accepted: "decision",
@@ -38,6 +41,19 @@ function formatTimestamp(ts?: string): string | null {
 }
 
 function eventText(e: StreamEvent): string {
+  if (e.type === "llm_call") {
+    const tokens =
+      e.input_tokens != null || e.output_tokens != null
+        ? ` · ${e.input_tokens ?? "?"}→${e.output_tokens ?? "?"} tok`
+        : "";
+    return `${e.role || "LLM"} · ${e.model || "model"} (${e.duration_ms ?? "?"}ms${tokens})`;
+  }
+  if (e.type === "tool_end" && e.duration_ms != null) {
+    return `${e.content || e.tool_id || "tool"} (${e.duration_ms}ms)`;
+  }
+  if (e.type === "node_end" && e.duration_ms != null) {
+    return `${e.content || e.node_id || "node"} (${e.duration_ms}ms)`;
+  }
   if (e.content) return e.content;
   if (e.summary) return e.summary;
   if (e.message) return e.message;
@@ -53,6 +69,8 @@ export function activePhaseFromEvents(events: StreamEvent[]): string | null {
     if (e.type === "heartbeat") return e.content || null;
     if (e.type === "log") return e.content || null;
     if (e.type === "node_start") return e.content || e.node_id || null;
+    if (e.type === "llm_call") return e.content || null;
+    if (e.type === "tool_start") return e.content || e.tool_id || null;
   }
   return null;
 }

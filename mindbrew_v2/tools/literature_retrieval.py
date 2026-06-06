@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from mindbrew_v2.models import ResearchBrief
+from mindbrew_v2.models import PathwayCandidate, ResearchBrief
 from mindbrew_v2.settings import get_settings, is_offline
 
 DocumentSource = Literal[
@@ -55,6 +55,60 @@ def build_retrieval_queries(brief: ResearchBrief) -> list[str]:
             seen.add(normalized)
             unique.append(normalized)
     return unique[:4]
+
+
+def build_gem_retrieval_queries(
+    brief: ResearchBrief,
+    candidates: list[PathwayCandidate] | None = None,
+) -> list[str]:
+    organism = ", ".join(brief.organism) if brief.organism else ""
+    feedstock = brief.feedstock.name or brief.feedstock.compound_class or ""
+    target = brief.target.name or brief.target.compound_class or ""
+    queries = [
+        f"{organism} genome-scale metabolic model".strip(),
+        f"{organism} GSMM {feedstock} validation".strip(),
+        f"{target} metabolic model {organism}".strip(),
+    ]
+    if candidates:
+        for cand in candidates[:2]:
+            for citation in cand.citations[:1]:
+                if citation.title:
+                    queries.append(f"{citation.title} metabolic model")
+    seen: set[str] = set()
+    unique: list[str] = []
+    for query in queries:
+        normalized = " ".join(query.split())
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            unique.append(normalized)
+    return unique[:4]
+
+
+def merge_retrieval_docs(
+    existing: list[RetrievedDocument],
+    new_docs: list[RetrievedDocument],
+) -> list[RetrievedDocument]:
+    seen = {_doc_dedup_key(doc) for doc in existing}
+    merged = list(existing)
+    for doc in new_docs:
+        key = _doc_dedup_key(doc)
+        if key not in seen:
+            seen.add(key)
+            merged.append(doc)
+    return merged
+
+
+def retrieve_queries(queries: list[str]) -> list[RetrievedDocument]:
+    if is_offline() or not queries:
+        return []
+    settings = get_settings()
+    if not settings.literature_retrieval_enabled:
+        return []
+    docs: list[RetrievedDocument] = []
+    seen_keys: set[str] = set()
+    for query in queries:
+        docs.extend(_safe_retrieve(query, settings, seen_keys))
+    return docs
 
 
 def format_context_block(docs: list[RetrievedDocument], max_chars: int) -> str:
@@ -109,26 +163,37 @@ def retrieve_literature_context(brief: ResearchBrief) -> list[RetrievedDocument]
     if not settings.literature_retrieval_enabled:
         return []
 
-    from mindbrew_v2.progress import log
+    import time
+
+    from mindbrew_v2.progress import log, tool_end, tool_start
+    from mindbrew_v2.telemetry import start_span
 
     queries = build_retrieval_queries(brief)
     if not queries:
         return []
 
-    log(f"Retrieving literature context ({len(queries)} queries)…")
-    docs: list[RetrievedDocument] = []
-    seen_keys: set[str] = set()
+    tool_id = "literature.retrieve"
+    label = f"Literature retrieval ({len(queries)} queries)"
+    tool_start(tool_id, label)
+    started = time.perf_counter()
 
-    for index, query in enumerate(queries, start=1):
-        preview = query if len(query) <= 120 else f"{query[:117]}…"
-        log(f"Query {index}/{len(queries)}: {preview}")
-        docs.extend(_safe_retrieve(query, settings, seen_keys))
+    with start_span("tool.call", {"tool_id": tool_id, "query_count": len(queries)}):
+        docs: list[RetrievedDocument] = []
+        seen_keys: set[str] = set()
 
-    log(
-        f"Retrieved {len(docs)} documents "
-        f"({', '.join(retrieval_source_tags(docs)) or 'none'})"
-    )
-    return docs
+        for index, query in enumerate(queries, start=1):
+            preview = query if len(query) <= 120 else f"{query[:117]}…"
+            log(f"Query {index}/{len(queries)}: {preview}")
+            docs.extend(_safe_retrieve(query, settings, seen_keys))
+
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        tool_end(tool_id, label, duration_ms=duration_ms, status="ok")
+        log(
+            f"Retrieved {len(docs)} documents "
+            f"({', '.join(retrieval_source_tags(docs)) or 'none'}) "
+            f"in {duration_ms / 1000:.1f}s"
+        )
+        return docs
 
 
 def _safe_retrieve(query: str, settings, seen_keys: set[str]) -> list[RetrievedDocument]:

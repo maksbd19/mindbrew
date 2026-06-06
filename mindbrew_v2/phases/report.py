@@ -37,6 +37,8 @@ def generate_report(
     fba_results: list[FBAValidationResult] | None = None,
     literature_plan: LiteraturePathwayPlan | None = None,
     revision_notes: str | None = None,
+    gem_discovery=None,
+    biomass_validation_warning: str | None = None,
 ) -> OutcomeReport:
     from mindbrew_v2.progress import log
 
@@ -51,6 +53,7 @@ def generate_report(
             line = (
                 f"- {r.pathway_id}: {r.verdict} (status={r.status}, "
                 f"yield={r.yield_corrected_mol_per_mol_substrate}, "
+                f"growth={r.growth_rate}, flux={r.predicted_product_flux}, "
                 f"calibration={r.calibration_level})"
             )
             if r.verdict_rationale:
@@ -59,6 +62,19 @@ def generate_report(
                 line += f"\n  Flags: {'; '.join(r.failure_reasons)}"
             lines.append(line)
         fba_summary = "\n".join(lines)
+
+    gem_summary = ""
+    if gem_discovery is not None:
+        from mindbrew_v2.models import GemDiscoveryResult
+
+        disc = gem_discovery if isinstance(gem_discovery, GemDiscoveryResult) else GemDiscoveryResult.model_validate(gem_discovery)
+        gem_summary = (
+            f"Discovered GSMM: {disc.model_name or 'unknown'} ({disc.confidence})\n"
+            f"Rationale: {disc.rationale}\n"
+            f"Local SBML available: {disc.sbml_available_locally}"
+        )
+        if biomass_validation_warning:
+            gem_summary += f"\nBiomass validation warning: {biomass_validation_warning}"
 
     lit_summary = ""
     if literature_plan:
@@ -89,6 +105,8 @@ Validation mode: {validation_mode.value}
 {pathway_summary}
 FBA results:
 {fba_summary or 'N/A'}
+GEM discovery:
+{gem_summary or 'N/A'}
 Literature plan:
 {lit_summary or 'N/A'}
 """

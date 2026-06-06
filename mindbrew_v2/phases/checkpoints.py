@@ -16,7 +16,7 @@ STEP_TO_CHECKPOINT: dict[StepId, CheckpointId] = {v: k for k, v in CHECKPOINT_TO
 # Work node to re-run when restarting a checkpoint step (prior-step state is preserved).
 STEP_WORK_NODE: dict[StepId, str] = {
     StepId.CP1_SPEC: "intake",
-    StepId.CP2_PATHWAYS: "biomni_search",
+    StepId.CP2_PATHWAYS: "literature_search",
     StepId.CP3_FBA_PLAN: "formalize",
     StepId.CP3B_LITERATURE_PLAN: "literature_plan",
     StepId.CP4_FBA_RESULTS: "score_pathway",

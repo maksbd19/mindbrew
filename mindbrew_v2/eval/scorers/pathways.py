@@ -7,7 +7,7 @@ from pathlib import Path
 
 from mindbrew_v2.eval.scorers.base import EvalCase, EvalResult
 from mindbrew_v2.models import ResearchBrief, Ticket
-from mindbrew_v2.phases.biomni import run_biomni_search
+from mindbrew_v2.phases.literature_search import run_literature_search
 from mindbrew_v2.phases.intake import run_intake
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -22,7 +22,7 @@ def score_pathways(case: EvalCase) -> EvalResult:
         raw = case.input.get("raw_brief", "")
         ticket = Ticket(id=case.id, raw_brief=raw)
         brief = run_intake(ticket)
-        candidates = [c.model_dump() for c in run_biomni_search(brief)]
+        candidates = [c.model_dump() for c in run_literature_search(brief)[0]]
 
     for assertion in case.assertions:
         atype = assertion.get("type")

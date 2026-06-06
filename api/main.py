@@ -9,11 +9,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.db.database import get_engine, normalize_database_url
 from api.db.models import Base
 from mindbrew_v2.settings import get_settings
+from mindbrew_v2.telemetry import init_telemetry
 from api.routes.sessions import router as sessions_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_telemetry(instrument_fastapi=app)
     engine = get_engine()
     url = normalize_database_url(get_settings().database_url)
     if url.startswith("sqlite"):

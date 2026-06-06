@@ -136,6 +136,9 @@ export default function FbaPlanView({
   payloads,
   skipped,
   gemProfile,
+  gemDiscovery,
+  biomassValidationWarning,
+  findIdsSummary,
   selectedPathway,
   priorRuns,
   resolvePathwayName,
@@ -144,12 +147,45 @@ export default function FbaPlanView({
   payloads: ScorePayload[];
   skipped?: string[];
   gemProfile?: Record<string, unknown> | null;
+  gemDiscovery?: Record<string, unknown> | null;
+  biomassValidationWarning?: string | null;
+  findIdsSummary?: Record<string, unknown> | null;
   selectedPathway?: PathwayChoice | null;
   priorRuns?: PathwayRunHistoryEntry[];
   resolvePathwayName?: (pathwayId: string | undefined) => string;
   embedded?: boolean;
 }) {
-  const body = <PlanPayloads payloads={payloads} skipped={skipped} />;
+  const body = (
+    <>
+      {gemDiscovery && (
+        <div className="mb-4 rounded-lg border border-border-subtle bg-surface-raised/50 p-4 text-[13px]">
+          <p className="font-medium text-foreground">
+            Discovered GSMM: {String(gemDiscovery.model_name || "unknown")}
+          </p>
+          {gemDiscovery.rationale ? (
+            <p className="mt-1 text-muted-light">{String(gemDiscovery.rationale)}</p>
+          ) : null}
+          {gemProfile?.cache_source ? (
+            <p className="mt-1 font-mono text-[12px] text-muted">
+              Cache: {String(gemProfile.model_cache_path || gemProfile.model_ref)} ({String(gemProfile.cache_source)})
+            </p>
+          ) : null}
+        </div>
+      )}
+      {biomassValidationWarning && (
+        <div className="mb-4 rounded-md border border-amber-900/40 bg-amber-950/20 px-3 py-2.5 text-[13px] text-amber-200">
+          {biomassValidationWarning}
+        </div>
+      )}
+      {findIdsSummary && (
+        <div className="mb-4 rounded-md border border-border-subtle bg-surface px-3 py-2.5 text-[12px] font-mono text-muted">
+          find_ids: carbon={String(findIdsSummary.carbon_source_rxn ?? "—")} · oleoyl-CoA=
+          {String(findIdsSummary.oleoyl_coa_metabolite ?? "—")}
+        </div>
+      )}
+      <PlanPayloads payloads={payloads} skipped={skipped} />
+    </>
+  );
 
   if (embedded) {
     return body;

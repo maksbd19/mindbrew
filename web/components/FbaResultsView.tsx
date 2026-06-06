@@ -40,8 +40,26 @@ export default function FbaResultsView({
                   value={`${r.yield_corrected_mol_per_mol_substrate.toFixed(2)} mol/mol`}
                 />
               )}
-              <MetricChip label="Calibration" value={r.calibration_level} />
+              {r.predicted_product_flux != null && (
+                <MetricChip
+                  label="Product flux"
+                  value={`${r.predicted_product_flux.toFixed(3)} mmol/gDW/h`}
+                />
+              )}
+              {r.growth_rate != null && (
+                <MetricChip label="Growth" value={`${r.growth_rate.toFixed(3)} h⁻¹`} />
+              )}
+              <MetricChip label="Calibration" value={r.calibration_level ?? ""} />
+              {r.product_confidence_level && (
+                <MetricChip label="Product cal." value={r.product_confidence_level} />
+              )}
             </div>
+
+            {r.carbon_audit_sole_source === false && (
+              <p className="mt-2 text-[13px] text-amber-200">
+                Carbon audit: feedstock is not the sole carbon source — yield vs feedstock is untrustworthy.
+              </p>
+            )}
 
             {r.verdict_rationale && (
               <p className="mt-3 text-[14px] leading-relaxed text-muted-light">{r.verdict_rationale}</p>

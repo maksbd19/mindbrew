@@ -1,7 +1,7 @@
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TicketStatus(str, Enum):
@@ -102,7 +102,29 @@ class PathwayCandidate(BaseModel):
     confidence: Literal["strong", "partial", "inferred"] = "partial"
     confidence_rationale: str = ""
     confidence_factors: list[str] = Field(default_factory=list)
-    biomni_provenance: list[str] = Field(default_factory=list)
+    literature_provenance: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_provenance(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "biomni_provenance" in data and "literature_provenance" not in data:
+            data = {**data, "literature_provenance": data.pop("biomni_provenance")}
+        return data
+
+
+class GemDiscoveryResult(BaseModel):
+    organism: str = ""
+    model_name: str = ""
+    model_id: str | None = None
+    validation_paper: Citation | None = None
+    feedstock_used_in_validation: str | None = None
+    biomass_context: str | None = None
+    rationale: str = ""
+    confidence: Literal["strong", "partial", "inferred"] = "partial"
+    sbml_available_locally: bool = False
+    sbml_url: str | None = None
+    sbml_source: str | None = None
+    literature_refs: list[Citation] = Field(default_factory=list)
 
 
 class GemProfile(BaseModel):
@@ -111,12 +133,21 @@ class GemProfile(BaseModel):
     scenario: str
     organism: str = ""
     feedstock_class: str = ""
+    model_name: str = ""
+    model_cache_path: str = ""
+    cache_source: str = ""
+    discovery_rationale: str = ""
+    discovery_confidence: str = ""
+    validation_paper: Citation | None = None
+    literature_refs: list[Citation] = Field(default_factory=list)
+    biomass_validation_scenario: str = ""
 
 
 class GemSelectionResult(BaseModel):
     gem: GemProfile | None = None
     validation_mode: ValidationMode
     reason: str = ""
+    discovery: GemDiscoveryResult | None = None
 
 
 class CandidateReaction(BaseModel):
@@ -151,10 +182,14 @@ class FBAValidationResult(BaseModel):
     pathway_id: str
     status: str
     predicted_product_flux: float | None = None
+    growth_rate: float | None = None
     yield_corrected_mol_per_mol_substrate: float | None = None
     bottlenecks: list[Bottleneck] = Field(default_factory=list)
     calibration_level: str = "exploratory"
+    product_confidence_level: str = ""
     carbon_audit_sole_source: bool | None = None
+    carbon_audit: dict[str, Any] = Field(default_factory=dict)
+    edits_not_found: list[str] = Field(default_factory=list)
     verdict: Literal["pass", "marginal", "fail"] = "fail"
     failure_reasons: list[str] = Field(default_factory=list)
     rank: int | None = None

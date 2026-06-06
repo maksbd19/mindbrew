@@ -191,7 +191,7 @@ brewmind/
 │   │   └── models.yaml       # Per-role model overrides
 │   ├── phases/
 │   │   ├── intake.py         # Ticket → ResearchBrief
-│   │   ├── biomni.py         # Literature search phase (LLM)
+│   │   ├── literature_search.py  # Literature pathway search phase (LLM)
 │   │   ├── formalize.py      # PathwayCandidate → FBA payloads
 │   │   ├── fba_payloads.py   # Wax-ester FAR/WS stoichiometry from find_ids IDs
 │   │   ├── literature_plan.py
@@ -323,7 +323,7 @@ Session lifecycle: `running` → `awaiting_user` (at each checkpoint) → `compl
 | `POST` | `/sessions/{id}/resume` | Continue from last checkpoint after interrupt |
 | `DELETE` | `/sessions/{id}` | Delete session |
 
-**SSE event types:** `step_start`, `step_complete`, `awaiting_user`, `interrupted`, `token`, `tool_start`, `tool_end`, `error`
+**SSE event types:** `step_start`, `step_complete`, `awaiting_user`, `interrupted`, `log`, `heartbeat`, `node_start`, `node_end`, `tool_start`, `tool_end`, `llm_call`, `error`
 
 While the agent is **running** (between checkpoints), use **Stop agent** in the UI or `POST /sessions/{id}/interrupt`. Status becomes `interrupted`; click **Resume** or `POST /sessions/{id}/resume` to continue from the last LangGraph checkpoint. Interruption takes effect after the current graph node finishes (not mid-LLM-call).
 

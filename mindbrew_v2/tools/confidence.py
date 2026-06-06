@@ -52,8 +52,8 @@ def compute_confidence_factors(candidate: PathwayCandidate) -> list[str]:
         het = sum(1 for s in steps if s.heterologous)
         factors.append(f"{het}/{len(steps)} steps heterologous")
 
-    if candidate.biomni_provenance:
-        factors.append(f"provenance: {', '.join(candidate.biomni_provenance)}")
+    if candidate.literature_provenance:
+        factors.append(f"provenance: {', '.join(candidate.literature_provenance)}")
 
     ec_count = sum(1 for s in steps if s.enzyme_ec and "-" not in s.enzyme_ec)
     if ec_count:

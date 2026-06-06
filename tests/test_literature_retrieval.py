@@ -174,7 +174,7 @@ def test_search_pathways_adds_provenance(sample_brief: ResearchBrief):
             PathwayCandidate(
                 id="pw1",
                 name="Pathway A",
-                biomni_provenance=["literature_search"],
+                literature_provenance=["literature_search"],
             )
         ]
     )
@@ -192,4 +192,4 @@ def test_search_pathways_adds_provenance(sample_brief: ResearchBrief):
     ):
         results = literature_client.search_pathways(sample_brief)
 
-    assert results[0]["biomni_provenance"] == ["literature_search", "pubmed"]
+    assert results[0]["literature_provenance"] == ["literature_search", "pubmed"]

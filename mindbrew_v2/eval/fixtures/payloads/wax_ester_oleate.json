@@ -2,13 +2,34 @@
   "pathway_id": "pw_wax_ester_far_ws",
   "model_ref": "vendor/FBA_Analysis/iYLI647.xml",
   "scenario": "vendor/FBA_Analysis/scenarios/wax_ester_oleate_n_limited.yaml",
-  "carbon_source_rxn": "EX_ole_e",
+  "carbon_source_rxn": "EX_ocdcea_LPAREN_e_RPAREN_",
   "candidate_reactions": [
-    {"id": "FAR_rxn", "name": "FAR", "stoichiometry": {"fatty_acyl_coa": -1, "fatty_alcohol": 1}, "gene_associations": ["FAR"]},
-    {"id": "WS_rxn", "name": "WS", "stoichiometry": {"fatty_alcohol": -1, "fatty_acyl_coa": -1, "wax_ester_c": 1}, "gene_associations": ["WS"]}
+    {
+      "id": "FAR",
+      "name": "fatty acyl-CoA reductase",
+      "stoichiometry": {
+        "odecoa_c": -1,
+        "nadph_c": -2,
+        "oleyl_alcohol_c": 1,
+        "coa_c": 1,
+        "nadp_c": 2
+      },
+      "gene_associations": ["FAR"]
+    },
+    {
+      "id": "WS",
+      "name": "wax ester synthase",
+      "stoichiometry": {
+        "oleyl_alcohol_c": -1,
+        "odecoa_c": -1,
+        "wax_ester_c": 1,
+        "coa_c": 1
+      },
+      "gene_associations": ["WS"]
+    }
   ],
   "product_metabolite": "wax_ester_c",
   "knockouts": ["ACOAO8p", "ACOAO4p"],
-  "substrate_moles_per_product": 1.0,
+  "substrate_moles_per_product": 2.0,
   "objective": "product"
 }

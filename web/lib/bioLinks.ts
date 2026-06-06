@@ -87,6 +87,8 @@ export type PathwayCandidate = {
   reaction_steps?: ReactionStep[];
   citations?: Citation[];
   reported_titer?: string | null;
+  literature_provenance?: string[];
+  /** @deprecated use literature_provenance */
   biomni_provenance?: string[];
 };
 
@@ -94,8 +96,12 @@ export type FbaResult = {
   pathway_id: string;
   status: string;
   verdict: string;
+  predicted_product_flux?: number | null;
+  growth_rate?: number | null;
   yield_corrected_mol_per_mol_substrate?: number | null;
-  calibration_level?: string;
+  product_confidence_level?: string;
+  carbon_audit_sole_source?: boolean | null;
+  carbon_audit?: Record<string, unknown>;
   calibration_rationale?: string;
   calibration_warnings?: string[];
   verdict_rationale?: string;

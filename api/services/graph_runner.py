@@ -17,6 +17,7 @@ from api.services.session_store import append_stream_event, update_session_statu
 from mindbrew_v2.errors import agent_error_event
 from mindbrew_v2.graph import build_graph
 from mindbrew_v2.models import HumanDecision, StepId, Ticket
+from mindbrew_v2.telemetry import log_agent_event, reset_session_context, set_session_context
 from mindbrew_v2.phases.checkpoints import (
     CHECKPOINT_TO_STEP,
     NODE_TO_CHECKPOINT,
@@ -47,6 +48,15 @@ _graph_version: int | None = None
 
 class SessionInterrupted(Exception):
     """Raised when the user stops a running graph."""
+
+
+def _graph_run_config(session_id: str) -> dict:
+    return {
+        "configurable": {"thread_id": session_id},
+        "metadata": {"session_id": session_id},
+        "tags": ["brewmind"],
+        "run_name": f"session-{session_id[:8]}",
+    }
 
 
 def get_checkpointer():
@@ -103,7 +113,7 @@ def validate_decision(session_id: str, decision: HumanDecision, db) -> str | Non
         return "Agent is already processing. Wait for the current step to finish."
 
     graph = get_graph()
-    config = {"configurable": {"thread_id": session_id}}
+    config = _graph_run_config(session_id)
     snapshot = graph.get_state(config)
     if not snapshot.values:
         return "No agent checkpoint found for this session. Start a new session or use Retry."
@@ -292,29 +302,33 @@ async def _finalize_graph_run(session_id: str, db, graph, config: dict) -> dict 
 
 
 async def _run_graph_loop(session_id: str, db, graph, config: dict, graph_input: Any) -> AsyncIterator[dict]:
-    async for kind, payload in _iter_graph_stream(session_id, graph_input, config):
-        if kind == "progress":
-            yield await _handle_progress(session_id, db, payload)
-            continue
-        evt = await _handle_chunk(session_id, payload, db, graph, config)
-        if evt:
-            if evt["type"] == "awaiting_user":
+    ctx = set_session_context(session_id)
+    try:
+        async for kind, payload in _iter_graph_stream(session_id, graph_input, config):
+            if kind == "progress":
+                yield await _handle_progress(session_id, db, payload)
+                continue
+            evt = await _handle_chunk(session_id, payload, db, graph, config)
+            if evt:
+                if evt["type"] == "awaiting_user":
+                    yield evt
+                    return
                 yield evt
-                return
-            yield evt
 
-    pending = await _finalize_graph_run(session_id, db, graph, config)
-    if pending:
-        yield pending
-        return
+        pending = await _finalize_graph_run(session_id, db, graph, config)
+        if pending:
+            yield pending
+            return
 
-    update_session_status(db, session_id, "completed", current_step=StepId.CP5_REPORT.value)
-    yield {"type": "step_complete", "step_id": "done"}
+        update_session_status(db, session_id, "completed", current_step=StepId.CP5_REPORT.value)
+        yield {"type": "step_complete", "step_id": "done"}
+    finally:
+        reset_session_context(ctx)
 
 
 async def run_session_graph(session_id: str, raw_brief: str) -> AsyncIterator[dict]:
     graph = get_graph()
-    config = {"configurable": {"thread_id": session_id}}
+    config = _graph_run_config(session_id)
     state = _initial_state(session_id, raw_brief)
     db = get_session_factory()()
     current_step = StepId.CP1_SPEC.value
@@ -334,7 +348,7 @@ async def run_session_graph(session_id: str, raw_brief: str) -> AsyncIterator[di
         raise
     except Exception as exc:
         db.rollback()
-        logger.exception("Session %s failed", session_id)
+        log_agent_event(logger, logging.ERROR, "Session failed", session_id=session_id, exc_info=True)
         update_session_status(db, session_id, "failed")
         err = agent_error_event(exc)
         append_stream_event(db, session_id, "error", err)
@@ -345,7 +359,7 @@ async def run_session_graph(session_id: str, raw_brief: str) -> AsyncIterator[di
 
 async def resume_session(session_id: str, decision: HumanDecision) -> AsyncIterator[dict]:
     graph = get_graph()
-    config = {"configurable": {"thread_id": session_id}}
+    config = _graph_run_config(session_id)
     db = get_session_factory()()
     step_id = CHECKPOINT_TO_STEP.get(decision.checkpoint, StepId.CP1_SPEC).value
 
@@ -431,7 +445,7 @@ async def resume_session(session_id: str, decision: HumanDecision) -> AsyncItera
         raise
     except Exception as exc:
         db.rollback()
-        logger.exception("Session %s resume failed", session_id)
+        log_agent_event(logger, logging.ERROR, "Session resume failed", session_id=session_id, exc_info=True)
         update_session_status(db, session_id, "failed")
         err = agent_error_event(exc)
         append_stream_event(db, session_id, "error", err)
@@ -445,7 +459,7 @@ def validate_session_retry(session_id: str, db) -> str | None:
     from api.services.session_store import get_session
 
     graph = get_graph()
-    config = {"configurable": {"thread_id": session_id}}
+    config = _graph_run_config(session_id)
     snapshot = graph.get_state(config)
     row = get_session(db, session_id)
     if snapshot.values or (row and row.steps):
@@ -495,7 +509,7 @@ def _load_restart_state(session_id: str, step_id: StepId, raw_brief: str, db) ->
         return None
 
     graph = get_graph()
-    config = {"configurable": {"thread_id": session_id}}
+    config = _graph_run_config(session_id)
     snapshot = graph.get_state(config)
     base = dict(snapshot.values) if snapshot.values else _initial_state(session_id, raw_brief)
     state = prepare_step_restart_state(base, step_id)
@@ -570,7 +584,7 @@ async def restart_session_step(session_id: str, step_id: str) -> AsyncIterator[d
     from api.services.session_store import get_session
 
     graph = get_graph()
-    config = {"configurable": {"thread_id": session_id}}
+    config = _graph_run_config(session_id)
     db = get_session_factory()()
 
     try:
@@ -647,7 +661,7 @@ async def restart_session_step(session_id: str, step_id: str) -> AsyncIterator[d
         raise
     except Exception as exc:
         db.rollback()
-        logger.exception("Session %s step restart failed", session_id)
+        log_agent_event(logger, logging.ERROR, "Session step restart failed", session_id=session_id, exc_info=True)
         update_session_status(db, session_id, "failed")
         err = agent_error_event(exc)
         append_stream_event(db, session_id, "error", err)
@@ -661,7 +675,7 @@ async def retry_session_graph(session_id: str, raw_brief: str) -> AsyncIterator[
     from api.services.session_store import get_session
 
     graph = get_graph()
-    config = {"configurable": {"thread_id": session_id}}
+    config = _graph_run_config(session_id)
     snapshot = graph.get_state(config)
     db = get_session_factory()()
     row = get_session(db, session_id)
@@ -687,7 +701,7 @@ def interrupt_session(session_id: str) -> bool:
 async def continue_session_graph(session_id: str) -> AsyncIterator[dict]:
     """Resume graph from last LangGraph checkpoint after user interrupt."""
     graph = get_graph()
-    config = {"configurable": {"thread_id": session_id}}
+    config = _graph_run_config(session_id)
     db = get_session_factory()()
     row_step = StepId.CP1_SPEC.value
 
@@ -705,7 +719,7 @@ async def continue_session_graph(session_id: str) -> AsyncIterator[dict]:
         raise
     except Exception as exc:
         db.rollback()
-        logger.exception("Session %s continue failed", session_id)
+        log_agent_event(logger, logging.ERROR, "Session continue failed", session_id=session_id, exc_info=True)
         update_session_status(db, session_id, "failed")
         err = agent_error_event(exc)
         append_stream_event(db, session_id, "error", err)

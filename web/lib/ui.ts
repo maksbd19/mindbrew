@@ -65,6 +65,9 @@ export function eventColorClass(type: string, level?: string): string {
   if (type === "heartbeat") return "text-muted/60 italic";
   if (type === "node_start") return "text-accent";
   if (type === "node_end" || type === "step_complete") return "text-success";
+  if (type === "tool_start") return "text-accent";
+  if (type === "tool_end") return "text-success";
+  if (type === "llm_call") return "text-purple-300";
   if (type === "awaiting_user") return "text-warning";
   if (type === "decision_accepted") return "text-purple-300";
   if (type === "action_rejected") return "text-danger";

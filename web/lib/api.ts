@@ -47,9 +47,17 @@ export type StreamEvent = {
   ts?: string;
   step_id?: string;
   node_id?: string;
+  tool_id?: string;
   content?: string;
   level?: string;
   phase?: string;
+  stage?: string;
+  status?: string;
+  duration_ms?: number;
+  role?: string;
+  model?: string;
+  input_tokens?: number;
+  output_tokens?: number;
   artifact?: Record<string, unknown>;
   summary?: string;
   message?: string;

@@ -17,6 +17,7 @@ import {
   updateSessionTitle,
 } from "@/lib/api";
 import StepNav from "@/components/StepNav";
+import AgentStagePanel from "@/components/AgentStagePanel";
 import StreamLog, { activePhaseFromEvents } from "@/components/StreamLog";
 import SessionContextPanel from "@/components/SessionContextPanel";
 import EditableSessionTitle from "@/components/EditableSessionTitle";
@@ -594,7 +595,8 @@ export default function SessionDetailPage() {
           )}
         </div>
 
-        <div className="mt-3 shrink-0">
+        <div className="mt-3 shrink-0 space-y-3">
+          <AgentStagePanel events={events} running={showStop || deciding || restarting} />
           <StreamLog events={events} running={showStop || deciding || restarting} />
         </div>
 
@@ -626,7 +628,6 @@ export default function SessionDetailPage() {
                   Status: <strong className="text-foreground">{session?.status}</strong>
                   {session?.current_step ? ` · checkpoint ${session.current_step}` : ""}
                 </p>
-                {activePhase && <p className="mb-0 mt-1.5 text-muted-light">Latest: {activePhase}</p>}
               </div>
             )}
 
