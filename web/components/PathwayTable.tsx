@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { PathwayCandidate } from "@/lib/bioLinks";
 import { cn } from "@/lib/ui";
 import ArtifactPanel, { ArtifactSection, MetricChip } from "./ArtifactPanel";
@@ -225,12 +225,14 @@ export default function PathwayTable({
   selectable = false,
   selectedId = null,
   onSelectionChange,
+  actionBar,
 }: {
   candidates: PathwayCandidate[];
   organism?: string[];
   selectable?: boolean;
   selectedId?: string | null;
   onSelectionChange?: (id: string | null) => void;
+  actionBar?: ReactNode;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const org = organism?.[0] ?? null;
@@ -254,6 +256,7 @@ export default function PathwayTable({
       title="Pathway candidates"
       subtitle={`${candidates.length} candidate${candidates.length === 1 ? "" : "s"} identified`}
     >
+      {actionBar && <div className="mb-4">{actionBar}</div>}
       <div className="space-y-3">
         {candidates.map((c) => (
           <PathwayCard

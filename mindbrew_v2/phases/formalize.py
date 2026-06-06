@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from mindbrew_v2.config.gem import select_gem
+from mindbrew_v2.paths import display_path
 from mindbrew_v2.models import (
     GemDiscoveryResult,
     GemProfile,
@@ -15,6 +16,7 @@ from mindbrew_v2.models import (
     ScorePathwayPayload,
     ValidationMode,
 )
+from mindbrew_v2.phases.fba_metabolite_resolver import infer_fba_metabolite_mapping, search_terms_from_brief
 from mindbrew_v2.phases.fba_payloads import build_payload_from_find_ids, summarize_find_ids
 from mindbrew_v2.phases.gem_discovery import discover_gem
 from mindbrew_v2.tools.fba_client import run_biomass_validation, run_find_ids
@@ -49,15 +51,15 @@ def formalize_pathways(
 
     if selection.gem is None:
         return FormalizeResult(
-            skipped=["No GEM available — use literature pathway branch"],
+            skipped=["No GEM available — resolve SBML cache or select literature branch at pathways"],
             discovery=selection.discovery or resolved_discovery,
-            validation_mode=ValidationMode.LITERATURE_PATHWAY,
+            validation_mode=ValidationMode.FBA,
         )
 
     gem = selection.gem
-    log(f"Selected GEM {gem.gem_id} ({gem.model_name}) at {gem.model_cache_path}")
+    log(f"Selected GEM {gem.gem_id} ({gem.model_name}) — {display_path(gem.model_cache_path)}")
 
-    find_ids = run_find_ids(gem.model_ref)
+    find_ids = run_find_ids(gem.model_ref, extra_terms=search_terms_from_brief(brief))
     if find_ids.get("status") != "ok":
         message = find_ids.get("message", "find_ids failed")
         return FormalizeResult(
@@ -65,7 +67,7 @@ def formalize_pathways(
             skipped=[f"find_ids preflight failed: {message}"],
             discovery=selection.discovery,
             find_ids_summary=summarize_find_ids(find_ids),
-            validation_mode=ValidationMode.LITERATURE_PATHWAY,
+            validation_mode=ValidationMode.FBA,
         )
 
     biomass_validation = run_biomass_validation(gem)
@@ -80,7 +82,8 @@ def formalize_pathways(
     payloads: list[ScorePathwayPayload] = []
     skipped: list[str] = []
     for cand in candidates:
-        payload = build_payload_from_find_ids(cand, gem, find_ids)
+        mapping = infer_fba_metabolite_mapping(brief, cand, find_ids)
+        payload = build_payload_from_find_ids(cand, gem, find_ids, mapping)
         if payload:
             payloads.append(payload)
         else:

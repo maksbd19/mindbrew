@@ -21,7 +21,7 @@ export function committedPathwayId(humanDecisions: unknown[] | undefined): strin
   for (let i = humanDecisions.length - 1; i >= 0; i--) {
     const d = humanDecisions[i] as HumanDecision;
     if (d.action !== "proceed") continue;
-    if (d.checkpoint && d.checkpoint !== "cp2_pathways") continue;
+    if (d.checkpoint !== "cp2_pathways") continue;
     if (d.primary_pathway_id) return d.primary_pathway_id;
     if (d.selected_pathway_ids?.[0]) return d.selected_pathway_ids[0];
   }
@@ -34,6 +34,23 @@ export function resolvePathwayChoice(
 ): PathwayChoice | null {
   if (!pathwayId) return null;
   return candidates.find((p) => p.id === pathwayId) ?? { id: pathwayId, name: pathwayId };
+}
+
+export function formatDecisionPathwaySummary(
+  candidates: PathwayChoice[],
+  decision: { selected_pathway_ids?: string[]; primary_pathway_id?: string }
+): string | null {
+  const ids =
+    decision.selected_pathway_ids?.length
+      ? decision.selected_pathway_ids
+      : decision.primary_pathway_id
+        ? [decision.primary_pathway_id]
+        : [];
+  if (ids.length === 0) return null;
+
+  const names = ids.map((id) => resolvePathwayChoice(candidates, id)?.name ?? id);
+  if (names.length === 1) return names[0];
+  return `${names.length} pathways: ${names.join(", ")}`;
 }
 
 export function pathwayRunHistory(cp2Step: StepRecord | undefined): PathwayRunHistoryEntry[] {

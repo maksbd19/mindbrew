@@ -20,6 +20,8 @@ export default function StepDecisionActions({
   clarificationsPending,
   proceedDisabled,
   proceedDisabledReason,
+  proceedLabel = "Proceed",
+  proceedSummary,
   busy,
 }: {
   onProceed: (opts: { selectedPathwayIds?: string[]; primaryPathwayId?: string }) => void;
@@ -31,6 +33,8 @@ export default function StepDecisionActions({
   clarificationsPending?: boolean;
   proceedDisabled?: boolean;
   proceedDisabledReason?: string | null;
+  proceedLabel?: string;
+  proceedSummary?: string | null;
   busy?: boolean;
 }) {
   const tone = agentStatus != null ? agentStatusTone(agentStatus) : null;
@@ -85,6 +89,15 @@ export default function StepDecisionActions({
       {proceedDisabledReason && (
         <p className="mb-3 text-sm text-danger">{proceedDisabledReason}</p>
       )}
+      {(proceedLabel !== "Proceed" || proceedSummary) && (
+        <div className="mb-3 rounded-md border border-border-subtle bg-surface-raised px-3 py-2.5">
+          <span className="text-[12px] font-medium uppercase tracking-wide text-muted">Next step</span>
+          <p className="mt-1 text-[14px] font-medium text-foreground">{proceedLabel}</p>
+          {proceedSummary && (
+            <p className="mb-0 mt-1 text-[13px] leading-relaxed text-muted-light">{proceedSummary}</p>
+          )}
+        </div>
+      )}
       <div className={actionBar}>
         <button
           type="button"
@@ -97,7 +110,7 @@ export default function StepDecisionActions({
             })
           }
         >
-          {busy ? "Working…" : "Proceed"}
+          {busy ? "Working…" : proceedLabel}
         </button>
         {onRestart && (
           <button type="button" className={btnSecondary} disabled={busy} onClick={onRestart}>

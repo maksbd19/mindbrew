@@ -10,7 +10,7 @@ os.environ.setdefault("BREWMIND_OFFLINE", "true")
 os.environ.setdefault("MAX_REVISIONS", "3")
 
 from mindbrew_v2.models import HumanDecision
-from mindbrew_v2.phases.checkpoints import decision_block_reason
+from mindbrew_v2.phases.checkpoints import decision_block_reason, prepare_pathway_switch_state
 
 
 def _state(**overrides) -> dict:
@@ -76,6 +76,31 @@ def test_revision_cap_blocks_revise():
     reason = decision_block_reason(decision, state)
     assert reason is not None
     assert "maximum revision limit" in reason.lower()
+
+
+def test_prepare_pathway_switch_replaces_old_cp2_decision():
+    state = {
+        "validation_mode": "fba",
+        "pathway_candidates": [{"id": "pw1", "name": "One"}, {"id": "pw2", "name": "Two"}],
+        "primary_pathway_id": "pw1",
+        "score_payloads": [{"pathway_id": "pw1"}],
+        "human_decisions": [
+            {"checkpoint": "cp1_spec", "action": "proceed"},
+            {"checkpoint": "cp2_pathways", "action": "proceed", "selected_pathway_ids": ["pw1"]},
+            {"checkpoint": "cp3_fba_plan", "action": "proceed"},
+        ],
+    }
+    decision = HumanDecision(
+        checkpoint="cp2_pathways",
+        action="proceed",
+        selected_pathway_ids=["pw2"],
+        primary_pathway_id="pw2",
+    )
+    updated = prepare_pathway_switch_state(state, decision)
+    assert updated["primary_pathway_id"] == "pw2"
+    assert updated["score_payloads"] == []
+    checkpoints = [d.get("checkpoint") for d in updated["human_decisions"]]
+    assert checkpoints == ["cp1_spec", "cp2_pathways"]
 
 
 def test_revision_below_cap_allows_revise():

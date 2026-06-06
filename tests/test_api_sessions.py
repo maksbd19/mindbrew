@@ -85,3 +85,48 @@ def test_decide_rejects_when_session_not_awaiting_user(client: TestClient):
     )
     assert res.status_code == 409
     assert "awaiting_user" in res.json()["detail"]
+
+
+def test_export_report_pdf_and_docx(client: TestClient):
+    from api.db.database import get_session_factory
+    from api.services.session_store import upsert_step
+
+    created = client.post(
+        "/sessions",
+        json={"raw_brief": "Brief for export.", "title": "Export Test Session"},
+    ).json()
+    session_id = created["id"]
+
+    db = get_session_factory()()
+    try:
+        upsert_step(
+            db,
+            session_id,
+            "cp5_report",
+            "completed",
+            artifact={"report": {"markdown": "# Brewmind Pathway Blueprint\n\n## Summary\nExport test."}},
+        )
+    finally:
+        db.close()
+
+    pdf = client.get(f"/sessions/{session_id}/report/export?format=pdf")
+    assert pdf.status_code == 200
+    assert pdf.headers["content-type"].startswith("application/pdf")
+    assert pdf.content.startswith(b"%PDF")
+    assert 'filename="Export-Test-Session.pdf"' in pdf.headers["content-disposition"]
+
+    docx = client.get(f"/sessions/{session_id}/report/export?format=docx")
+    assert docx.status_code == 200
+    assert docx.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    assert docx.content.startswith(b"PK")
+    assert 'filename="Export-Test-Session.docx"' in docx.headers["content-disposition"]
+
+
+def test_export_report_missing(client: TestClient):
+    created = client.post("/sessions", json={"raw_brief": "No report yet."}).json()
+    session_id = created["id"]
+
+    res = client.get(f"/sessions/{session_id}/report/export?format=pdf")
+    assert res.status_code == 404

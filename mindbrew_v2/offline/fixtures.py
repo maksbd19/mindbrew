@@ -19,6 +19,8 @@ def offline_structured_response(schema: type[BaseModel], prompt: str) -> dict[st
         return _literature_plan_extract()
     if name == "ReportExtract":
         return _report_extract(text)
+    if name == "FbaMetaboliteMapping":
+        return _fba_metabolite_mapping(text)
 
     return {}
 
@@ -140,8 +142,63 @@ def _literature_plan_extract() -> dict[str, Any]:
 
 def _report_extract(text: str) -> dict[str, Any]:
     return {
-        "what_worked": "Wax ester FAR+WS pathway shows strongest literature and FBA support.",
-        "what_didnt": "Fatty alcohol-only route lacks emollient match to dimethicone profile.",
-        "recommendations": "Proceed with FAR+WS in Y. lipolytica; knock out β-oxidation genes.",
-        "appendix": "Literature provenance: literature + KEGG. Model: iYLI647.",
+        "project_summary": (
+            "This proposal targets C34–C36 wax esters produced from sunflower-derived oleic acid "
+            "via whole-cell fermentation in Yarrowia lipolytica for premium haircare silicone replacement."
+        ),
+        "target_molecule_specification": (
+            "C34–C36 wax esters (C18:1/C16:0 and C18:1/C18:0). INCI: Jojoba Esters (proposed). "
+            "Functional property: frizz control and dimethicone-like smoothness."
+        ),
+        "feedstock_starting_material": (
+            "Sunflower oil / C18:1 oleic acid feedstock. Chosen for sustainability and fatty acid profile match."
+        ),
+        "production_strategy": (
+            "Whole-cell fermentation in Y. lipolytica using FAR + WS enzymatic steps from fatty acyl-CoA to wax ester."
+        ),
+        "genetic_engineering_plan": (
+            "Insert: FAR (fatty acyl reductase), WS (wax ester synthase). "
+            "Knock out: β-oxidation (POX1–6, MFE1). Down-regulate: TAG synthesis (DGA1, DGA2, LRO1, ARE1)."
+        ),
+        "predicted_performance": (
+            "Expected yield 5–8 g/L based on literature precedent (MhFAR + AbWS at 7.58 g/L). "
+            "Fermentation at 28°C, pH 5.5, glucose carbon source, 120 h duration."
+        ),
+        "validation_plan": (
+            "Measure yield by HPLC/GC, confirm ester structure by MS. "
+            "Efficacy proxy: frizz test and TEWL. Success: ≥5 g/L with ≥90% target ester purity."
+        ),
+        "risk_bottleneck_assessment": (
+            "Competing β-oxidation and TAG storage pathways may reduce yield. "
+            "Monitor fatty alcohol intermediates. Scale-up: oxygen transfer and foam control."
+        ),
+        "regulatory_positioning": (
+            "GMO-derived ingredient; COSMOS/ECOCERT eligibility depends on host and process certification. "
+            "EU SCCS review required; NMPA filing for China market."
+        ),
+    }
+
+
+def _fba_metabolite_mapping(text: str) -> dict[str, Any]:
+    if "far" in text and ("ws" in text or "wax" in text or "wax ester" in text):
+        return {
+            "product_metabolite": "wax_ester_c",
+            "fatty_alcohol_metabolite": "oleyl_alcohol_c",
+            "substrate_moles_per_product": 2.0,
+            "product_search_terms": ["wax ester", "wax", "ester"],
+            "pathway_template": "far_ws",
+            "rationale": "FAR+WS wax ester pathway from literature; 2 mol C18 per C36 product.",
+        }
+    product = "product_c"
+    if "ceramide" in text:
+        product = "ceramide_c"
+    elif "alcohol" in text:
+        product = "fatty_alcohol_c"
+    return {
+        "product_metabolite": product,
+        "fatty_alcohol_metabolite": None,
+        "substrate_moles_per_product": 1.0,
+        "product_search_terms": [product.replace("_c", "")],
+        "pathway_template": "generic",
+        "rationale": "Generic single-product mapping from target description.",
     }

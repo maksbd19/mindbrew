@@ -159,6 +159,19 @@ export async function restartSessionStep(sessionId: string, stepId: string): Pro
   return res.json();
 }
 
+export async function switchPathway(
+  sessionId: string,
+  body: { selected_pathway_ids: string[]; primary_pathway_id?: string }
+): Promise<Session> {
+  const res = await fetch(`${API_URL}/sessions/${sessionId}/pathway/switch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await parseApiError(res, "Failed to switch pathway"));
+  return res.json();
+}
+
 export async function submitDecision(
   sessionId: string,
   stepId: string,
@@ -180,4 +193,25 @@ export async function submitDecision(
 
 export function streamUrl(sessionId: string, afterSeq = 0): string {
   return `${API_URL}/sessions/${sessionId}/stream?after_seq=${afterSeq}`;
+}
+
+export async function downloadReportExport(sessionId: string, format: "pdf" | "docx"): Promise<void> {
+  const res = await fetch(`${API_URL}/sessions/${sessionId}/report/export?format=${format}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(await parseApiError(res, "Failed to export report"));
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match?.[1] ?? `brewmind-report.${format}`;
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }

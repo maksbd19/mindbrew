@@ -176,14 +176,30 @@ class Bottleneck(BaseModel):
     flux: float = 0.0
     at_bound: bool = False
     explanation: str = ""
+    min_flux: float | None = None
+    max_flux: float | None = None
+    flux_span: float | None = None
+
+
+class CalculationStep(BaseModel):
+    step: int
+    title: str
+    detail: str = ""
 
 
 class FBAValidationResult(BaseModel):
     pathway_id: str
     status: str
+    objective_used: str = ""
     predicted_product_flux: float | None = None
     growth_rate: float | None = None
+    yield_mol_per_mol_substrate: float | None = None
     yield_corrected_mol_per_mol_substrate: float | None = None
+    calculation_steps: list[CalculationStep] = Field(default_factory=list)
+    simulation_context: dict[str, Any] = Field(default_factory=dict)
+    inserted_reactions: list[str] = Field(default_factory=list)
+    edits_applied: dict[str, Any] = Field(default_factory=dict)
+    solver_message: str = ""
     bottlenecks: list[Bottleneck] = Field(default_factory=list)
     calibration_level: str = "exploratory"
     product_confidence_level: str = ""
@@ -227,12 +243,16 @@ class HumanDecision(BaseModel):
 
 
 class OutcomeReport(BaseModel):
-    ticket_summary: str = ""
     validation_mode: ValidationMode
-    what_worked: str = ""
-    what_didnt: str = ""
-    recommendations: str = ""
-    appendix: str = ""
+    project_summary: str = ""
+    target_molecule_specification: str = ""
+    feedstock_starting_material: str = ""
+    production_strategy: str = ""
+    genetic_engineering_plan: str = ""
+    predicted_performance: str = ""
+    validation_plan: str = ""
+    risk_bottleneck_assessment: str = ""
+    regulatory_positioning: str = ""
     markdown: str = ""
 
 

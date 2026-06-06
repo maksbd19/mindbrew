@@ -6,6 +6,7 @@ import time
 from typing import Callable, Literal
 
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.errors import GraphInterrupt
 from langgraph.graph import END, StateGraph
 from langgraph.types import interrupt
 
@@ -70,6 +71,9 @@ def _tracked_review(name: str, fn: Callable[[dict], dict]) -> Callable[[dict], d
                 result = fn(state)
                 node_end(name, label, stage="review", status="ok", started_at=started)
                 return result
+            except GraphInterrupt:
+                log(f"Checkpoint paused: {label} — awaiting user decision")
+                raise
             except Exception as exc:
                 node_end(name, label, stage="review", status="error", started_at=started)
                 log(f"Checkpoint failed: {label} — {exc}", level="error")
@@ -192,7 +196,14 @@ def _after_cp2_branch(state: dict) -> Literal["revise", "fba", "literature"]:
     action = _last_decision(state, "cp2_pathways")
     if action == "revise":
         return "revise"
-    mode = state.get("validation_mode", ValidationMode.LITERATURE_PATHWAY.value)
+    mode = state.get("validation_mode")
+    if not mode and state.get("brief"):
+        from mindbrew_v2.models import ResearchBrief
+
+        brief = ResearchBrief.model_validate(state["brief"])
+        mode = provisional_validation_mode(brief).validation_mode.value
+    if not mode:
+        mode = ValidationMode.LITERATURE_PATHWAY.value
     return "fba" if mode == ValidationMode.FBA.value else "literature"
 
 
@@ -209,6 +220,7 @@ def _node_formalize(state: dict) -> dict:
         literature_context=_parse_literature_context(state),
         gem_override=override,
     )
+    prior_mode = state.get("validation_mode") or ValidationMode.FBA.value
     updates: dict = {
         **state,
         "gem_profile": result.gem.model_dump() if result.gem else state.get("gem_profile"),
@@ -218,10 +230,10 @@ def _node_formalize(state: dict) -> dict:
         "biomass_validation_warning": result.biomass_validation_warning,
         "score_payloads": [p.model_dump() for p in result.payloads],
         "formalize_skipped": result.skipped,
-        "validation_mode": result.validation_mode.value,
+        "validation_mode": prior_mode,
         "revision_notes": None,
     }
-    if result.gem is None and result.validation_mode == ValidationMode.LITERATURE_PATHWAY:
+    if result.gem is None:
         updates["gem_selection_reason"] = result.skipped[0] if result.skipped else "No local GEM"
     return updates
 
@@ -289,6 +301,7 @@ def _node_report(state: dict) -> dict:
         LiteraturePathwayPlan,
         PathwayCandidate,
         ResearchBrief,
+        ScorePathwayPayload,
         ValidationMode,
     )
 
@@ -298,6 +311,11 @@ def _node_report(state: dict) -> dict:
     fba = [FBAValidationResult.model_validate(r) for r in state.get("fba_results", [])] if state.get("fba_results") else None
     lit = LiteraturePathwayPlan.model_validate(state["literature_plan"]) if state.get("literature_plan") else None
     discovery = GemDiscoveryResult.model_validate(state["gem_discovery"]) if state.get("gem_discovery") else None
+    payloads = (
+        [ScorePathwayPayload.model_validate(p) for p in state.get("score_payloads", [])]
+        if state.get("score_payloads")
+        else None
+    )
     report = generate_report(
         brief,
         mode,
@@ -307,7 +325,12 @@ def _node_report(state: dict) -> dict:
         lit,
         _revision_notes(state),
         gem_discovery=discovery,
+        gem_profile=state.get("gem_profile"),
+        gem_selection_reason=state.get("gem_selection_reason"),
         biomass_validation_warning=state.get("biomass_validation_warning"),
+        session_title=state.get("session_title"),
+        score_payloads=payloads,
+        formalize_skipped=state.get("formalize_skipped"),
     )
     return {**state, "report": report.model_dump(), "revision_notes": None}
 

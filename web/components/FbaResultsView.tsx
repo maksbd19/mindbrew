@@ -1,7 +1,33 @@
-import type { Citation, FbaResult } from "@/lib/bioLinks";
+import type { Citation, FbaCalculationStep, FbaResult } from "@/lib/bioLinks";
+import type { PathwayChoice, PathwayRunHistoryEntry } from "@/lib/pathwaySelection";
 import ArtifactPanel, { ArtifactSection, MetricChip } from "./ArtifactPanel";
 import CitationBadge from "./CitationBadge";
 import ConfidencePanel from "./ConfidencePanel";
+import PriorPathwayRuns from "./PriorPathwayRuns";
+
+function CalculationStepsPanel({ steps }: { steps: FbaCalculationStep[] }) {
+  return (
+    <ArtifactSection title="Calculation steps">
+      <ol className="space-y-3">
+        {steps.map((s) => (
+          <li key={s.step} className="rounded-md border border-border-subtle bg-surface px-3 py-2.5">
+            <div className="flex gap-3">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-surface-raised font-mono text-[11px] font-semibold text-accent">
+                {s.step}
+              </span>
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium text-foreground">{s.title}</p>
+                {s.detail ? (
+                  <p className="mt-1 text-[12px] leading-relaxed text-muted-light">{s.detail}</p>
+                ) : null}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </ArtifactSection>
+  );
+}
 
 function verdictTone(verdict: string): "success" | "warning" | "danger" | "neutral" {
   const v = verdict.toLowerCase();
@@ -14,10 +40,22 @@ function verdictTone(verdict: string): "success" | "warning" | "danger" | "neutr
 export default function FbaResultsView({
   results,
   embedded = false,
+  selectedPathway,
+  priorRuns,
+  resolvePathwayName,
 }: {
   results: FbaResult[];
   embedded?: boolean;
+  selectedPathway?: PathwayChoice | null;
+  priorRuns?: PathwayRunHistoryEntry[];
+  resolvePathwayName?: (pathwayId: string | undefined) => string;
 }) {
+  const priorRunsWithResults =
+    priorRuns?.filter((entry) => {
+      const results = entry.cp4_fba_results?.fba_results;
+      return Array.isArray(results) && results.length > 0;
+    }) ?? [];
+
   const body = (
     <div className="space-y-4">
       {results.map((r) => (
@@ -36,10 +74,17 @@ export default function FbaResultsView({
               <MetricChip label="Status" value={r.status} />
               {r.yield_corrected_mol_per_mol_substrate != null && (
                 <MetricChip
-                  label="Yield"
+                  label="Yield (corrected)"
                   value={`${r.yield_corrected_mol_per_mol_substrate.toFixed(2)} mol/mol`}
                 />
               )}
+              {r.yield_mol_per_mol_substrate != null &&
+                r.yield_mol_per_mol_substrate !== r.yield_corrected_mol_per_mol_substrate && (
+                  <MetricChip
+                    label="Yield (raw)"
+                    value={`${r.yield_mol_per_mol_substrate.toFixed(2)} mol/mol`}
+                  />
+                )}
               {r.predicted_product_flux != null && (
                 <MetricChip
                   label="Product flux"
@@ -63,6 +108,18 @@ export default function FbaResultsView({
 
             {r.verdict_rationale && (
               <p className="mt-3 text-[14px] leading-relaxed text-muted-light">{r.verdict_rationale}</p>
+            )}
+
+            {(r.calculation_steps ?? []).length > 0 && (
+              <div className="mt-4">
+                <CalculationStepsPanel steps={r.calculation_steps ?? []} />
+              </div>
+            )}
+
+            {r.solver_message && r.solver_message !== "OK" && (
+              <p className="mt-3 rounded-md border border-amber-900/40 bg-amber-950/20 px-3 py-2.5 text-[13px] text-amber-200">
+                {r.solver_message}
+              </p>
             )}
 
             {r.calibration_rationale && (
@@ -97,6 +154,7 @@ export default function FbaResultsView({
                       <span className="text-muted">
                         {" "}
                         · flux {b.flux.toFixed(2)}
+                        {b.flux_span != null ? ` · FVA span ${b.flux_span.toFixed(2)}` : ""}
                         {b.at_bound ? " (at bound)" : ""}
                       </span>
                       {b.explanation && <p className="mt-1 text-muted-light">{b.explanation}</p>}
@@ -138,7 +196,23 @@ export default function FbaResultsView({
       title="FBA validation results"
       subtitle={`${results.length} pathway${results.length === 1 ? "" : "s"} scored`}
     >
+      {selectedPathway && (
+        <div className="mb-5 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted">Selected pathway</p>
+          <p className="mt-1 text-[15px] font-semibold text-foreground">{selectedPathway.name}</p>
+          <p className="mt-0.5 font-mono text-[11px] text-muted">{selectedPathway.id}</p>
+        </div>
+      )}
+
       {body}
+
+      {priorRunsWithResults.length > 0 && resolvePathwayName && (
+        <PriorPathwayRuns
+          entries={priorRunsWithResults}
+          resolvePathwayName={resolvePathwayName}
+          emphasis="results"
+        />
+      )}
     </ArtifactPanel>
   );
 }

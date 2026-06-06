@@ -1,4 +1,5 @@
 import type { Citation } from "@/lib/bioLinks";
+import { formatDisplayPath } from "@/lib/format";
 import type { PathwayChoice, PathwayRunHistoryEntry } from "@/lib/pathwaySelection";
 import ArtifactPanel, { ArtifactSection } from "./ArtifactPanel";
 import CitationBadge from "./CitationBadge";
@@ -22,6 +23,52 @@ type ScorePayload = {
   candidate_reactions?: CandidateReaction[];
   source_citations?: Citation[];
 };
+
+function gemLabel(gemProfile: Record<string, unknown>): string {
+  return String(gemProfile.gem_id || gemProfile.model_name || formatDisplayPath(gemProfile.model_ref) || "—");
+}
+
+function GemModelSummary({ gemProfile }: { gemProfile: Record<string, unknown> }) {
+  const modelFile = formatDisplayPath(gemProfile.model_ref);
+  const scenario = formatDisplayPath(gemProfile.scenario);
+  const biomassScenario = formatDisplayPath(gemProfile.biomass_validation_scenario);
+  const cacheFile = formatDisplayPath(gemProfile.model_cache_path || gemProfile.model_ref);
+  const cacheSource = gemProfile.cache_source ? String(gemProfile.cache_source) : "";
+
+  return (
+    <div className="mb-4 rounded-lg border border-border-subtle bg-surface-raised/50 p-4 text-[13px]">
+      <p className="font-medium text-foreground">GEM model: {gemLabel(gemProfile)}</p>
+      <dl className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {modelFile ? (
+          <div>
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">Model file</dt>
+            <dd className="mt-0.5 font-mono text-[13px] text-foreground">{modelFile}</dd>
+          </div>
+        ) : null}
+        {scenario ? (
+          <div>
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">Scenario</dt>
+            <dd className="mt-0.5 font-mono text-[13px] text-foreground">{scenario}</dd>
+          </div>
+        ) : null}
+        {biomassScenario ? (
+          <div>
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">Biomass scenario</dt>
+            <dd className="mt-0.5 font-mono text-[13px] text-foreground">{biomassScenario}</dd>
+          </div>
+        ) : null}
+        {cacheSource ? (
+          <div>
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">Cache</dt>
+            <dd className="mt-0.5 font-mono text-[13px] text-foreground">
+              {cacheFile || "—"} ({cacheSource})
+            </dd>
+          </div>
+        ) : null}
+      </dl>
+    </div>
+  );
+}
 
 function formatStoichiometry(stoich: Record<string, number>): string {
   const parts = Object.entries(stoich).map(([met, coeff]) => {
@@ -63,7 +110,7 @@ function PlanPayloads({
               {p.scenario && (
                 <div className="sm:col-span-2">
                   <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">Scenario</dt>
-                  <dd className="mt-0.5 break-all font-mono text-[13px] text-foreground">{p.scenario}</dd>
+                  <dd className="mt-0.5 font-mono text-[13px] text-foreground">{formatDisplayPath(p.scenario)}</dd>
                 </div>
               )}
               {(p.knockouts ?? []).length > 0 && (
@@ -157,7 +204,8 @@ export default function FbaPlanView({
 }) {
   const body = (
     <>
-      {gemDiscovery && (
+      {gemProfile ? <GemModelSummary gemProfile={gemProfile} /> : null}
+      {gemDiscovery ? (
         <div className="mb-4 rounded-lg border border-border-subtle bg-surface-raised/50 p-4 text-[13px]">
           <p className="font-medium text-foreground">
             Discovered GSMM: {String(gemDiscovery.model_name || "unknown")}
@@ -165,13 +213,8 @@ export default function FbaPlanView({
           {gemDiscovery.rationale ? (
             <p className="mt-1 text-muted-light">{String(gemDiscovery.rationale)}</p>
           ) : null}
-          {gemProfile?.cache_source ? (
-            <p className="mt-1 font-mono text-[12px] text-muted">
-              Cache: {String(gemProfile.model_cache_path || gemProfile.model_ref)} ({String(gemProfile.cache_source)})
-            </p>
-          ) : null}
         </div>
-      )}
+      ) : null}
       {biomassValidationWarning && (
         <div className="mb-4 rounded-md border border-amber-900/40 bg-amber-950/20 px-3 py-2.5 text-[13px] text-amber-200">
           {biomassValidationWarning}
@@ -196,7 +239,7 @@ export default function FbaPlanView({
       title="FBA formalization plan"
       subtitle={
         gemProfile
-          ? `Model: ${String(gemProfile.model_ref || gemProfile.gem_id || "")} · ${String(gemProfile.scenario || "")}`
+          ? `Model: ${gemLabel(gemProfile)} · ${formatDisplayPath(gemProfile.scenario) || "default scenario"}`
           : `${payloads.length} pathway payload${payloads.length === 1 ? "" : "s"}`
       }
     >

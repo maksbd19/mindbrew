@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 from mindbrew_v2.models import CandidateReaction, GemProfile, PathwayCandidate, ScorePathwayPayload
-
-PRODUCT_METABOLITE = "wax_ester_c"
-OLEYL_ALCOHOL = "oleyl_alcohol_c"
-WAX_SUBSTRATE_MOLES = 2.0
+from mindbrew_v2.phases.fba_metabolite_resolver import FbaMetaboliteMapping
 
 
 def collect_enzyme_tokens(cand: PathwayCandidate) -> set[str]:
@@ -26,8 +23,9 @@ def has_far_ws(tokens: set[str]) -> tuple[bool, bool]:
     return has_far, has_ws
 
 
-def build_wax_ester_reactions(
+def build_far_ws_reactions(
     recommended: dict,
+    mapping: FbaMetaboliteMapping,
     has_far: bool,
     has_ws: bool,
 ) -> list[CandidateReaction] | None:
@@ -35,7 +33,9 @@ def build_wax_ester_reactions(
     nadph = recommended.get("nadph_metabolite")
     nadp = recommended.get("nadp_metabolite")
     coa = recommended.get("coa_metabolite")
-    if not all([oleoyl, nadph, nadp, coa]):
+    fatty_alcohol = mapping.fatty_alcohol_metabolite
+    product = mapping.product_metabolite
+    if not all([oleoyl, nadph, nadp, coa, fatty_alcohol, product]):
         return None
 
     reactions: list[CandidateReaction] = []
@@ -47,7 +47,7 @@ def build_wax_ester_reactions(
                 stoichiometry={
                     oleoyl: -1.0,
                     nadph: -2.0,
-                    OLEYL_ALCOHOL: 1.0,
+                    fatty_alcohol: 1.0,
                     coa: 1.0,
                     nadp: 2.0,
                 },
@@ -60,9 +60,9 @@ def build_wax_ester_reactions(
                 id="WS",
                 name="wax ester synthase",
                 stoichiometry={
-                    OLEYL_ALCOHOL: -1.0,
+                    fatty_alcohol: -1.0,
                     oleoyl: -1.0,
-                    PRODUCT_METABOLITE: 1.0,
+                    product: 1.0,
                     coa: 1.0,
                 },
                 gene_associations=["WS", "WSD1"],
@@ -95,10 +95,15 @@ def resolve_knockouts(find_ids: dict, tokens: set[str]) -> list[str]:
     return knockouts
 
 
-def build_generic_reactions(cand: PathwayCandidate, recommended: dict) -> list[CandidateReaction] | None:
-    """Best-effort mapping when wax FAR/WS template does not apply."""
-    oleoyl = recommended.get("oleoyl_coa_metabolite")
-    if not oleoyl or not cand.reaction_steps:
+def build_generic_reactions(
+    cand: PathwayCandidate,
+    recommended: dict,
+    mapping: FbaMetaboliteMapping,
+) -> list[CandidateReaction] | None:
+    """Best-effort mapping when FAR/WS template does not apply."""
+    acyl_pool = recommended.get("oleoyl_coa_metabolite")
+    product = mapping.product_metabolite
+    if not acyl_pool or not product or not cand.reaction_steps:
         return None
     reactions: list[CandidateReaction] = []
     for index, step in enumerate(cand.reaction_steps, start=1):
@@ -106,9 +111,9 @@ def build_generic_reactions(cand: PathwayCandidate, recommended: dict) -> list[C
         rxn_id = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in rxn_id.upper())[:20]
         stoich: dict[str, float] = {}
         if step.substrates:
-            stoich[oleoyl] = stoich.get(oleoyl, 0) - 1.0
+            stoich[acyl_pool] = stoich.get(acyl_pool, 0) - 1.0
         if step.products:
-            stoich[PRODUCT_METABOLITE] = stoich.get(PRODUCT_METABOLITE, 0) + 1.0
+            stoich[product] = stoich.get(product, 0) + 1.0
         if not stoich:
             continue
         reactions.append(
@@ -126,22 +131,18 @@ def build_payload_from_find_ids(
     cand: PathwayCandidate,
     gem: GemProfile,
     find_ids: dict,
+    mapping: FbaMetaboliteMapping,
 ) -> ScorePathwayPayload | None:
     recommended = find_ids.get("recommended", {})
     tokens = collect_enzyme_tokens(cand)
     has_far, has_ws = has_far_ws(tokens)
 
     reactions: list[CandidateReaction] | None = None
-    substrate_moles = 1.0
-    product = PRODUCT_METABOLITE
-
-    if has_far or has_ws:
-        reactions = build_wax_ester_reactions(recommended, has_far, has_ws)
-        substrate_moles = WAX_SUBSTRATE_MOLES
-        product = PRODUCT_METABOLITE
-    else:
-        reactions = build_generic_reactions(cand, recommended)
-        product = PRODUCT_METABOLITE
+    use_far_ws = mapping.pathway_template == "far_ws" or has_far or has_ws
+    if use_far_ws and (has_far or has_ws):
+        reactions = build_far_ws_reactions(recommended, mapping, has_far, has_ws)
+    if not reactions:
+        reactions = build_generic_reactions(cand, recommended, mapping)
 
     if not reactions:
         return None
@@ -156,9 +157,9 @@ def build_payload_from_find_ids(
         scenario=gem.scenario,
         carbon_source_rxn=carbon_source,
         candidate_reactions=reactions,
-        product_metabolite=product,
+        product_metabolite=mapping.product_metabolite,
         knockouts=resolve_knockouts(find_ids, tokens),
-        substrate_moles_per_product=substrate_moles,
+        substrate_moles_per_product=mapping.substrate_moles_per_product,
         objective="product",
         source_citations=cand.citations,
     )

@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from mindbrew_v2.paths import display_path
 from mindbrew_v2.models import (
     Bottleneck,
     Citation,
@@ -16,6 +17,7 @@ from mindbrew_v2.models import (
 from mindbrew_v2.settings import is_offline
 from mindbrew_v2.tools.citation_resolver import resolve_citations
 from mindbrew_v2.tools.confidence import build_calibration_rationale, build_verdict_rationale
+from mindbrew_v2.tools.fba_calculation_steps import build_calculation_steps
 
 VENDOR_ROOT = Path(__file__).resolve().parents[2] / "vendor" / "FBA_Analysis"
 
@@ -42,9 +44,9 @@ def _fba_imports() -> tuple[Any, Any]:
     return build_report, sp
 
 
-def run_find_ids(model_ref: str) -> dict[str, Any]:
+def run_find_ids(model_ref: str, extra_terms: list[str] | None = None) -> dict[str, Any]:
     if is_offline():
-        return _offline_find_ids()
+        return _offline_find_ids(extra_terms=extra_terms or [])
 
     import time
 
@@ -52,14 +54,14 @@ def run_find_ids(model_ref: str) -> dict[str, Any]:
     from mindbrew_v2.telemetry import start_span
 
     tool_id = "fba.find_ids"
-    label = f"FBA find_ids ({model_ref})"
+    label = f"FBA find_ids ({display_path(model_ref)})"
     tool_start(tool_id, label)
     started = time.perf_counter()
 
     with start_span("tool.call", {"tool_id": tool_id, "model_ref": model_ref}):
         try:
             build_report, _ = _fba_imports()
-            report = build_report(model_ref, [])
+            report = build_report(model_ref, extra_terms or [])
             duration_ms = int((time.perf_counter() - started) * 1000)
             if report.get("status") == "ok":
                 tool_end(tool_id, label, duration_ms=duration_ms, status="ok")
@@ -68,7 +70,7 @@ def run_find_ids(model_ref: str) -> dict[str, Any]:
             message = report.get("message", report)
             tool_end(tool_id, label, duration_ms=duration_ms, status="error")
             log(f"FBA find_ids preflight failed: {message}", level="error")
-            raise RuntimeError(f"FBA find_ids preflight failed for {model_ref}: {message}")
+            raise RuntimeError(f"FBA find_ids preflight failed for {display_path(model_ref)}: {message}")
         except ImportError as exc:
             duration_ms = int((time.perf_counter() - started) * 1000)
             tool_end(tool_id, label, duration_ms=duration_ms, status="error")
@@ -78,7 +80,7 @@ def run_find_ids(model_ref: str) -> dict[str, Any]:
             duration_ms = int((time.perf_counter() - started) * 1000)
             tool_end(tool_id, label, duration_ms=duration_ms, status="error")
             log(f"FBA find_ids error: {exc}", level="error")
-            raise RuntimeError(f"FBA find_ids failed for {model_ref}") from exc
+            raise RuntimeError(f"FBA find_ids failed for {display_path(model_ref)}") from exc
 
 
 def run_biomass_validation(gem: GemProfile) -> dict[str, Any]:
@@ -268,20 +270,31 @@ def _parse_fba_result(pathway_id: str, data: dict) -> FBAValidationResult:
             flux=float(b.get("flux", 0)),
             at_bound=bool(b.get("at_bound", False)),
             explanation=b.get("explanation", ""),
+            min_flux=float(b["min"]) if b.get("min") is not None else None,
+            max_flux=float(b["max"]) if b.get("max") is not None else None,
+            flux_span=float(b["span"]) if b.get("span") is not None else None,
         )
         for b in data.get("bottlenecks", [])
     ]
     calibration = data.get("calibration", {})
     carbon = data.get("carbon_audit", {}) or {}
+    ctx = data.get("simulation_context") or {}
 
     lit_refs = _parse_literature_refs(calibration)
 
     result = FBAValidationResult(
         pathway_id=pathway_id,
         status=data.get("status", "unknown"),
+        objective_used=data.get("objective_used", ""),
         predicted_product_flux=data.get("predicted_product_flux"),
         growth_rate=data.get("growth_rate"),
+        yield_mol_per_mol_substrate=data.get("yield_mol_per_mol_substrate"),
         yield_corrected_mol_per_mol_substrate=data.get("yield_corrected_mol_per_mol_substrate"),
+        calculation_steps=build_calculation_steps(data),
+        simulation_context=ctx,
+        inserted_reactions=list(data.get("inserted_reactions") or []),
+        edits_applied=dict(data.get("edits_applied") or {}),
+        solver_message=(data.get("message") or "").strip(),
         bottlenecks=bottlenecks,
         calibration_level=calibration.get("confidence_level", "exploratory"),
         product_confidence_level=calibration.get("product_confidence_level", ""),
@@ -312,7 +325,23 @@ def _parse_literature_refs(calibration: dict) -> list[Citation]:
     return resolve_citations(citations)
 
 
-def _offline_find_ids() -> dict[str, Any]:
+def _offline_find_ids(extra_terms: list[str] | None = None) -> dict[str, Any]:
+    extra_terms = extra_terms or []
+    searches: dict[str, list[dict[str, str]]] = {
+        "wax": [{"id": "wax_ester_c", "name": "wax ester", "compartment": "c"}],
+        "ester": [{"id": "wax_ester_c", "name": "wax ester", "compartment": "c"}],
+        "alcohol": [{"id": "oleyl_alcohol_c", "name": "oleyl alcohol", "compartment": "c"}],
+        "oleate": [{"id": "ocdcea_e", "name": "oleate", "compartment": "e"}],
+        "oleic": [{"id": "odecoa_c", "name": "oleoyl-CoA", "compartment": "c"}],
+        "octadec": [{"id": "odecoa_c", "name": "octadecenoyl-CoA", "compartment": "c"}],
+    }
+    for term in extra_terms:
+        key = term.lower()
+        if key not in searches and "wax" in key:
+            searches[key] = [{"id": "wax_ester_c", "name": term, "compartment": "c"}]
+        elif key not in searches and "alcohol" in key:
+            searches[key] = [{"id": "oleyl_alcohol_c", "name": term, "compartment": "c"}]
+
     return {
         "status": "ok",
         "recommended": {
@@ -331,6 +360,7 @@ def _offline_find_ids() -> dict[str, Any]:
             "DGA1": [{"type": "reaction", "id": "DGA1"}],
         },
         "summary": {"has_gene_associations": True},
+        "searches": {"metabolites": searches},
     }
 
 
@@ -339,28 +369,55 @@ def _offline_score(payload: ScorePathwayPayload) -> FBAValidationResult:
     if has_ko:
         data = {
             "status": "optimal",
+            "objective_used": "product",
             "predicted_product_flux": 0.42,
             "growth_rate": 0.01,
+            "yield_mol_per_mol_substrate": 0.65,
             "yield_corrected_mol_per_mol_substrate": 0.65,
-            "bottlenecks": [{"reaction": "TAG_synthesis", "flux": 0.1, "at_bound": False}],
+            "simulation_context": {
+                "carbon_source_rxn": payload.carbon_source_rxn,
+                "carbon_source_uptake": 10.0,
+                "biomass_rxn": "BIOMASS",
+                "use_minimal_medium": True,
+                "substrate_moles_per_product": payload.substrate_moles_per_product,
+                "growth_constraints": {
+                    "max_growth_unconstrained": 0.35,
+                    "min_growth_applied": 0.01,
+                    "max_growth_applied": 0.1,
+                },
+            },
+            "inserted_reactions": [r.id for r in payload.candidate_reactions],
+            "bottlenecks": [{"reaction": "TAG_synthesis", "flux": 0.1, "span": 0.0, "at_bound": False}],
             "calibration": {
                 "confidence_level": "partial",
                 "product_confidence_level": "unvalidated",
                 "recommended_use": "Rank designs relative to each other; bottlenecks informative",
                 "missing_literature_inputs": ["product exchange bound"],
             },
-            "carbon_audit": {"feedstock_is_sole_carbon_source": True},
-            "edits_applied": {"not_found": []},
+            "carbon_audit": {
+                "feedstock_is_sole_carbon_source": True,
+                "total_carbon_import_mmol_per_h": 12.4,
+            },
+            "edits_applied": {"knocked_out": payload.knockouts, "not_found": []},
         }
     else:
         data = {
             "status": "optimal",
+            "objective_used": "product",
             "predicted_product_flux": 0.08,
             "growth_rate": 0.01,
+            "yield_mol_per_mol_substrate": 0.12,
             "yield_corrected_mol_per_mol_substrate": 0.12,
+            "simulation_context": {
+                "carbon_source_rxn": payload.carbon_source_rxn,
+                "carbon_source_uptake": 10.0,
+                "biomass_rxn": "BIOMASS",
+                "growth_constraints": {"min_growth_applied": 0.01},
+            },
+            "inserted_reactions": [r.id for r in payload.candidate_reactions],
             "bottlenecks": [
-                {"reaction": "ACOAO8p", "flux": 2.5, "at_bound": True},
-                {"reaction": "DGA1", "flux": 1.2, "at_bound": False},
+                {"reaction": "ACOAO8p", "flux": 2.5, "span": 0.0, "at_bound": True},
+                {"reaction": "DGA1", "flux": 1.2, "span": 0.4, "at_bound": False},
             ],
             "calibration": {
                 "confidence_level": "exploratory",

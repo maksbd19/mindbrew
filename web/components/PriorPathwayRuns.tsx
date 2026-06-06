@@ -11,10 +11,12 @@ function HistoryEntry({
   entry,
   pathwayName,
   defaultOpen = false,
+  emphasis = "plan",
 }: {
   entry: PathwayRunHistoryEntry;
   pathwayName: string;
   defaultOpen?: boolean;
+  emphasis?: "plan" | "results";
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const cp3 = entry.cp3_fba_plan ?? {};
@@ -44,17 +46,40 @@ function HistoryEntry({
 
       {open && (
         <div className="space-y-4 border-t border-border-subtle px-4 py-4">
-          {payloads.length > 0 ? (
-            <FbaPlanView
-              payloads={payloads}
-              skipped={cp3.skipped as string[] | undefined}
-              gemProfile={cp3.gem_profile as Record<string, unknown> | null}
-              embedded
-            />
+          {emphasis === "results" ? (
+            <>
+              {fbaResults.length > 0 ? (
+                <FbaResultsView results={fbaResults} embedded />
+              ) : (
+                <p className="m-0 text-[13px] text-muted">No FBA results were saved for this run.</p>
+              )}
+              {payloads.length > 0 && (
+                <div>
+                  <p className="mb-2 text-[12px] font-medium uppercase tracking-wide text-muted">FBA plan</p>
+                  <FbaPlanView
+                    payloads={payloads}
+                    skipped={cp3.skipped as string[] | undefined}
+                    gemProfile={cp3.gem_profile as Record<string, unknown> | null}
+                    embedded
+                  />
+                </div>
+              )}
+            </>
           ) : (
-            <p className="m-0 text-[13px] text-muted">No FBA plan was saved for this run.</p>
+            <>
+              {payloads.length > 0 ? (
+                <FbaPlanView
+                  payloads={payloads}
+                  skipped={cp3.skipped as string[] | undefined}
+                  gemProfile={cp3.gem_profile as Record<string, unknown> | null}
+                  embedded
+                />
+              ) : (
+                <p className="m-0 text-[13px] text-muted">No FBA plan was saved for this run.</p>
+              )}
+              {fbaResults.length > 0 && <FbaResultsView results={fbaResults} embedded />}
+            </>
           )}
-          {fbaResults.length > 0 && <FbaResultsView results={fbaResults} embedded />}
         </div>
       )}
     </div>
@@ -64,9 +89,11 @@ function HistoryEntry({
 export default function PriorPathwayRuns({
   entries,
   resolvePathwayName,
+  emphasis = "plan",
 }: {
   entries: PathwayRunHistoryEntry[];
   resolvePathwayName: (pathwayId: string | undefined) => string;
+  emphasis?: "plan" | "results";
 }) {
   const [open, setOpen] = useState(false);
 
@@ -84,9 +111,11 @@ export default function PriorPathwayRuns({
         )}
       >
         <div>
-          <p className="text-[13px] font-semibold text-foreground">Previous pathway runs</p>
+          <p className="text-[13px] font-semibold text-foreground">
+            {emphasis === "results" ? "Previous FBA results" : "Previous pathway runs"}
+          </p>
           <p className="mt-0.5 text-[12px] text-muted">
-            {entries.length} earlier selection{entries.length === 1 ? "" : "s"} with saved downstream results
+            {entries.length} earlier run{entries.length === 1 ? "" : "s"} with saved downstream results
           </p>
         </div>
         <span className="shrink-0 text-[12px] text-muted">{open ? "Hide ▴" : "Show ▾"}</span>
@@ -99,6 +128,7 @@ export default function PriorPathwayRuns({
               key={`${entry.pathway_id}-${entry.revision_number}-${index}`}
               entry={entry}
               pathwayName={resolvePathwayName(entry.pathway_id)}
+              emphasis={emphasis}
             />
           ))}
         </div>

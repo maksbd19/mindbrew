@@ -13,16 +13,19 @@ import {
   retrySession,
   streamUrl,
   submitDecision,
+  switchPathway,
   suggestSessionTitle,
   updateSessionTitle,
 } from "@/lib/api";
 import StepNav from "@/components/StepNav";
+import { nextPipelineStep, stepInPipeline } from "@/lib/steps";
+import { stepArtifactHasContent } from "@/lib/stepArtifact";
 import AgentStagePanel from "@/components/AgentStagePanel";
 import StreamLog, { activePhaseFromEvents } from "@/components/StreamLog";
 import SessionContextPanel from "@/components/SessionContextPanel";
 import EditableSessionTitle from "@/components/EditableSessionTitle";
 import ArtifactView from "@/components/ArtifactView";
-import PathwayRevisitPanel from "@/components/PathwayRevisitPanel";
+import PathwayActionBar from "@/components/PathwayActionBar";
 import StepDecisionActions from "@/components/StepDecisionActions";
 import {
   actionBar,
@@ -40,6 +43,7 @@ import {
   pathwayRunHistory,
   resolvePathwayChoice,
 } from "@/lib/pathwaySelection";
+import { pathwayProceedActionLabel, proceedActionLabel } from "@/lib/proceedSummary";
 
 /** Recovery markers — errors before these are stale and should not show in the banner. */
 const ERROR_RECOVERY_TYPES = new Set([
@@ -139,16 +143,26 @@ export default function SessionDetailPage() {
   const [pendingAction, setPendingAction] = useState<"proceed" | "revise" | "reject" | "restart" | null>(null);
   const [titleSuggesting, setTitleSuggesting] = useState(false);
   const [selectedPathwayId, setSelectedPathwayId] = useState<string | null>(null);
+  const [runningViewStep, setRunningViewStep] = useState<string | null>(null);
+  const [priorArtifacts, setPriorArtifacts] = useState<Record<string, Record<string, unknown>>>({});
   const lastSeqRef = useRef(0);
+  const pathwaySelectionTouchedRef = useRef(false);
 
   const stepRecord = session?.steps.find((s) => s.step_id === viewStep);
   const artifact = (stepRecord?.artifact as Record<string, unknown> | null) ?? null;
+  const cp2Step = session?.steps.find((s) => s.step_id === "cp2_pathways");
+  const displayArtifact = useMemo(() => {
+    if (viewStep !== "cp2_pathways") return artifact;
+    const cp2Artifact = (cp2Step?.artifact as Record<string, unknown> | null) ?? null;
+    if (Array.isArray(artifact?.pathway_candidates)) return artifact;
+    if (Array.isArray(cp2Artifact?.pathway_candidates)) return cp2Artifact;
+    return artifact ?? cp2Artifact;
+  }, [viewStep, artifact, cp2Step]);
   const pathwayCandidates =
     artifact && "pathway_candidates" in artifact
       ? ((artifact.pathway_candidates as { id: string; name: string }[]) || [])
       : [];
   const pathwayCandidateKey = pathwayCandidates.map((p) => p.id).join(",");
-  const cp2Step = session?.steps.find((s) => s.step_id === "cp2_pathways");
   const cp2Candidates = useMemo(() => pathwayCandidatesFromStep(cp2Step), [cp2Step]);
   const committedPathwayIdValue = useMemo(
     () => committedPathwayId(cp2Step?.human_decisions),
@@ -168,6 +182,19 @@ export default function SessionDetailPage() {
       setViewStep(s.current_step);
     }
   }, []);
+
+  const beginStepTransition = useCallback(
+    (nextStep: string) => {
+      const priorStep = session?.steps.find((s) => s.step_id === nextStep);
+      const prior = (priorStep?.artifact as Record<string, unknown> | null) ?? null;
+      if (prior && stepArtifactHasContent(nextStep, prior)) {
+        setPriorArtifacts((prev) => ({ ...prev, [nextStep]: prior }));
+      }
+      setViewStep(nextStep);
+      setRunningViewStep(nextStep);
+    },
+    [session?.steps]
+  );
 
   const refresh = useCallback(
     async (opts?: { followStep?: boolean }) => {
@@ -272,19 +299,67 @@ export default function SessionDetailPage() {
   useEffect(() => {
     if (viewStep !== "cp2_pathways") {
       setSelectedPathwayId(null);
+      pathwaySelectionTouchedRef.current = false;
       return;
     }
-    setSelectedPathwayId(committedPathwayIdValue);
+    if (!pathwaySelectionTouchedRef.current) {
+      setSelectedPathwayId(committedPathwayIdValue);
+    }
   }, [viewStep, committedPathwayIdValue, pathwayCandidateKey]);
+
+  useEffect(() => {
+    if (!runningViewStep) return;
+    const step = session?.steps.find((s) => s.step_id === runningViewStep);
+    if (!step) return;
+    const artifact = step.artifact as Record<string, unknown> | null | undefined;
+    if (
+      (step.status === "awaiting_user" || step.status === "completed") &&
+      stepArtifactHasContent(runningViewStep, artifact)
+    ) {
+      setRunningViewStep(null);
+    }
+  }, [session?.steps, runningViewStep]);
+
+  useEffect(() => {
+    if (session?.status === "failed" || session?.status === "interrupted") {
+      setRunningViewStep(null);
+    }
+  }, [session?.status]);
+
+  const handlePathwaySelectionChange = useCallback(
+    (id: string | null) => {
+      pathwaySelectionTouchedRef.current = id !== committedPathwayIdValue;
+      setSelectedPathwayId(id);
+    },
+    [committedPathwayIdValue]
+  );
+
+  const cp1Step = session?.steps.find((s) => s.step_id === "cp1_spec");
+  const cp1ValidationMode = (cp1Step?.artifact as { validation_mode?: string } | undefined)?.validation_mode;
+  const hasFbaSteps = (session?.steps || []).some((s) =>
+    ["cp3_fba_plan", "cp4_fba_results"].includes(s.step_id)
+  );
+  const hasLiteratureSteps = (session?.steps || []).some((s) => s.step_id === "cp3b_literature_plan");
+  const effectiveValidationMode =
+    session?.validation_mode ||
+    cp1ValidationMode ||
+    (hasFbaSteps ? "fba" : hasLiteratureSteps ? "literature" : null);
 
   const completedSteps = new Set(
     (session?.steps || [])
       .filter((s) => s.status === "completed" || s.status === "awaiting_user")
+      .filter((s) => stepInPipeline(s.step_id, effectiveValidationMode))
       .map((s) => s.step_id)
   );
 
-  const agentActive = Boolean(session?.agent_active) || session?.status === "running";
-  const showStop = agentActive;
+  useEffect(() => {
+    if (!effectiveValidationMode) return;
+    if (!stepInPipeline(viewStep, effectiveValidationMode)) {
+      setViewStep(session?.current_step ?? "cp1_spec");
+    }
+  }, [effectiveValidationMode, viewStep, session?.current_step]);
+
+  const showStop = Boolean(session?.agent_active) || session?.status === "running";
   const showResume = session?.status === "interrupted";
   const showRestartStep =
     Boolean(session?.current_step) &&
@@ -395,6 +470,11 @@ export default function SessionDetailPage() {
     setDeciding(true);
     setPendingAction(action);
 
+    if (action === "proceed") {
+      const next = nextPipelineStep(stepId, effectiveValidationMode);
+      if (next) beginStepTransition(next);
+    }
+
     const body = {
       action,
       notes: (opts.notes as string | undefined) ?? undefined,
@@ -408,7 +488,7 @@ export default function SessionDetailPage() {
 
     try {
       const started = await submitDecision(sessionId, stepId, body);
-      applySession(started, { followStep: true });
+      applySession(started);
 
       for (let i = 0; i < 180; i++) {
         await syncEvents();
@@ -431,16 +511,19 @@ export default function SessionDetailPage() {
     }
   }
 
-  async function handleRestartPathwayStep() {
+  async function handleSwitchPathway() {
+    if (!selectedPathwayId) return;
     setActionError("");
-    setRestarting(true);
-    setPendingAction("restart");
+    setDeciding(true);
+    setPendingAction("proceed");
+    const next = nextPipelineStep("cp2_pathways", effectiveValidationMode);
+    if (next) beginStepTransition(next);
     try {
-      const started = await restartSessionStep(sessionId, "cp2_pathways");
-      applySession(started, { followStep: true });
-      setEvents((prev) =>
-        mergeEvents(prev, [{ type: "step_restart_requested", step_id: "cp2_pathways" }])
-      );
+      const started = await switchPathway(sessionId, {
+        selected_pathway_ids: [selectedPathwayId],
+        primary_pathway_id: selectedPathwayId,
+      });
+      applySession(started);
 
       for (let i = 0; i < 180; i++) {
         await syncEvents();
@@ -454,7 +537,7 @@ export default function SessionDetailPage() {
           break;
         }
         if (s.status === "running" && !s.agent_active) {
-          setActionError("Agent stopped before finishing this step. Check the agent log above or use Restart step.");
+          setActionError("Agent stopped before finishing this step. Check the agent log above or use Retry.");
           break;
         }
         await new Promise((resolve) => window.setTimeout(resolve, 1500));
@@ -463,7 +546,7 @@ export default function SessionDetailPage() {
       setActionError(e instanceof Error ? e.message : String(e));
       await refresh();
     } finally {
-      setRestarting(false);
+      setDeciding(false);
       setPendingAction(null);
     }
   }
@@ -504,27 +587,66 @@ export default function SessionDetailPage() {
     }
     void sendDecision("proceed", opts);
   }
+
+  const effectivePathwayCandidates =
+    pathwayCandidates.length > 0 ? pathwayCandidates : cp2Candidates;
+  const hasPathwayCandidates = effectivePathwayCandidates.length > 0;
   const selectedPathway =
-    pathwayCandidates.find((p) => p.id === selectedPathwayId) ??
+    effectivePathwayCandidates.find((p) => p.id === selectedPathwayId) ??
     resolvePathwayChoice(cp2Candidates, selectedPathwayId);
   const committedPathway = resolvePathwayChoice(cp2Candidates, committedPathwayIdValue);
   const pathwaySelectionEnabled =
-    viewStep === "cp2_pathways" &&
-    pathwayCandidates.length > 0 &&
-    !deciding &&
-    !restarting &&
-    !showStop;
+    viewStep === "cp2_pathways" && hasPathwayCandidates && !deciding && !restarting;
+  const pathwayIsActiveStep = session?.current_step === "cp2_pathways";
+  const showPathwayActionPanel =
+    viewStep === "cp2_pathways" && hasPathwayCandidates && !deciding && !restarting;
   const showDecisionPanel =
     session?.status === "awaiting_user" &&
     session.current_step === viewStep &&
     !deciding &&
-    !restarting;
-  const showPathwayRevisitPanel =
-    pathwaySelectionEnabled && !showDecisionPanel && viewStep === "cp2_pathways";
+    !restarting &&
+    viewStep !== "cp2_pathways";
   const pathwaySelectionChanged =
     Boolean(selectedPathwayId) && selectedPathwayId !== committedPathwayIdValue;
+  const pathwayCanProceed =
+    Boolean(selectedPathwayId) && !showStop && !deciding && !restarting;
+
+  const pathwayStatusHint = (() => {
+    if (!showPathwayActionPanel || pathwayCanProceed || !selectedPathwayId) return null;
+    if (showStop) return "Wait for the agent to finish before proceeding.";
+    return null;
+  })();
+
+  function handlePathwayProceed() {
+    if (!selectedPathwayId) return;
+    if (session?.current_step === "cp2_pathways") {
+      handleProceed({
+        selectedPathwayIds: [selectedPathwayId],
+        primaryPathwayId: selectedPathwayId,
+      });
+      return;
+    }
+    void handleSwitchPathway();
+  }
+
   const fbaSelectedPathway = resolvePathwayChoice(cp2Candidates, committedPathwayIdValue);
-  const showHeaderRestart = showRestartStep && !showStop && !showDecisionPanel;
+  const pathwayProceedAction = pathwayProceedActionLabel(
+    effectiveValidationMode,
+    displayArtifact,
+    {
+      selectedPathwayId,
+      isActiveStep: pathwayIsActiveStep,
+      selectionChanged: pathwaySelectionChanged,
+    }
+  );
+  const decisionProceedAction = proceedActionLabel(viewStep, effectiveValidationMode, artifact, {
+    selectedPathwayId,
+  });
+  const viewStepRunning =
+    runningViewStep === viewStep && (deciding || restarting || showStop);
+  const priorArtifactForView = priorArtifacts[viewStep] ?? null;
+  const showHeaderRestart =
+    showRestartStep && !showStop && !showDecisionPanel && !showPathwayActionPanel;
   const workingMessage =
     pendingAction === "revise"
       ? "Applying your revision — re-running the agent on this step…"
@@ -600,13 +722,17 @@ export default function SessionDetailPage() {
           <StreamLog events={events} running={showStop || deciding || restarting} />
         </div>
 
-        <div className="mt-4 grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="mt-4 grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-stretch">
           <div className="min-h-0 min-w-0 max-w-full space-y-4 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
             <StepNav
               currentStep={viewStep}
               completedSteps={completedSteps}
-              onSelect={setViewStep}
-              validationMode={session?.validation_mode || null}
+              onSelect={(stepId) => {
+                if (!effectiveValidationMode || stepInPipeline(stepId, effectiveValidationMode)) {
+                  setViewStep(stepId);
+                }
+              }}
+              validationMode={effectiveValidationMode}
             />
 
             {(showStop || deciding || restarting) && session && (
@@ -621,7 +747,8 @@ export default function SessionDetailPage() {
               </div>
             )}
 
-            {(deciding || restarting || (session?.status === "running" && session.agent_active)) && (
+            {(deciding || restarting || (session?.status === "running" && session.agent_active)) &&
+              !viewStepRunning && (
               <div className={cn(card, "border-blue-900/50 p-4 text-[13px] text-muted")}>
                 <p className="m-0 text-accent">{workingMessage}</p>
                 <p className="mb-0 mt-2">
@@ -633,14 +760,45 @@ export default function SessionDetailPage() {
 
             <ArtifactView
               stepId={viewStep}
-              artifact={artifact}
+              artifact={viewStepRunning ? null : displayArtifact}
+              running={viewStepRunning}
+              priorArtifact={priorArtifactForView}
+              runningMessage={workingMessage}
+              sessionId={sessionId}
               pathwaySelection={
                 pathwaySelectionEnabled
-                  ? { selectedId: selectedPathwayId, onSelectionChange: setSelectedPathwayId }
+                  ? { selectedId: selectedPathwayId, onSelectionChange: handlePathwaySelectionChange }
                   : undefined
               }
+              pathwayActionBar={
+                showPathwayActionPanel ? (
+                  <PathwayActionBar
+                    selectedPathwayName={selectedPathway?.name ?? null}
+                    committedPathwayName={committedPathway?.name ?? null}
+                    selectionChanged={pathwaySelectionChanged}
+                    isActiveStep={pathwayIsActiveStep}
+                    proceedLabel={pathwayProceedAction.label}
+                    proceedSummary={pathwayProceedAction.summary}
+                    canProceed={pathwayCanProceed}
+                    busy={deciding}
+                    clarificationsPending={pathwayIsActiveStep ? pendingClarifications : false}
+                    statusHint={pathwayStatusHint}
+                    onProceed={handlePathwayProceed}
+                    onRestart={pathwayIsActiveStep ? handleRestartStep : undefined}
+                    onReject={
+                      pathwayIsActiveStep
+                        ? () => {
+                            if (window.confirm("Reject this session? The run will stop and cannot be resumed.")) {
+                              void sendDecision("reject");
+                            }
+                          }
+                        : undefined
+                    }
+                  />
+                ) : undefined
+              }
               fbaContext={
-                viewStep === "cp3_fba_plan"
+                viewStep === "cp3_fba_plan" || viewStep === "cp4_fba_results"
                   ? {
                       selectedPathway: fbaSelectedPathway,
                       priorRuns: priorPathwayRuns,
@@ -650,24 +808,14 @@ export default function SessionDetailPage() {
               }
             />
 
-            {showPathwayRevisitPanel && (
-              <PathwayRevisitPanel
-                selectedPathwayName={selectedPathway?.name ?? null}
-                committedPathwayName={committedPathway?.name ?? null}
-                selectionChanged={pathwaySelectionChanged}
-                busy={restarting}
-                onRestart={handleRestartPathwayStep}
-              />
-            )}
-
             {showDecisionPanel && (
               <StepDecisionActions
-                showPathwaySelect={viewStep === "cp2_pathways"}
-                selectedPathway={selectedPathway}
                 agentStatus={agentStatus}
                 clarificationsPending={pendingClarifications}
                 proceedDisabled={Boolean(proceedBlocked)}
                 proceedDisabledReason={proceedBlocked}
+                proceedLabel={decisionProceedAction.label}
+                proceedSummary={decisionProceedAction.summary}
                 busy={deciding || restarting}
                 onRestart={handleRestartStep}
                 onProceed={handleProceed}
@@ -680,12 +828,12 @@ export default function SessionDetailPage() {
             )}
           </div>
 
-          <aside className="flex min-h-0 min-w-0 flex-col lg:sticky lg:top-[4.5rem] lg:max-h-[calc(100dvh-5.5rem)] lg:overflow-y-auto">
+          <aside className="min-w-0 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:overflow-hidden">
             <SessionContextPanel
               session={session}
-              showRevise={showDecisionPanel}
+              showRevise={showDecisionPanel || showPathwayActionPanel}
               reviseBusy={deciding || restarting}
-              clarificationPrompt={showDecisionPanel ? clarificationPrompt : null}
+              clarificationPrompt={showDecisionPanel || showPathwayActionPanel ? clarificationPrompt : null}
               onRevise={(notes) => sendDecision("revise", { notes })}
             />
           </aside>

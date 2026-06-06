@@ -4,6 +4,7 @@ import type { Session } from "@/lib/api";
 import ArtifactPanel from "./ArtifactPanel";
 import ReviseForm from "./ReviseForm";
 import { formatStepLabel } from "@/lib/format";
+import { formatDecisionPathwaySummary, pathwayCandidatesFromStep } from "@/lib/pathwaySelection";
 import { cn } from "@/lib/ui";
 
 type HumanDecision = {
@@ -85,27 +86,32 @@ export default function SessionContextPanel({
   clarificationPrompt?: string | null;
 }) {
   const decisions = session ? collectDecisions(session) : [];
+  const pathwayCandidates = pathwayCandidatesFromStep(
+    session?.steps.find((s) => s.step_id === "cp2_pathways")
+  );
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-col gap-4">
-      <ArtifactPanel title="Your brief" subtitle="Original R&D ticket">
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
+      <ArtifactPanel title="Your brief" subtitle="Original R&D ticket" className="shrink-0">
         <p className="m-0 whitespace-pre-wrap text-[13px] leading-relaxed text-muted-light">
           {session?.raw_brief || "Loading…"}
         </p>
       </ArtifactPanel>
 
-      <ArtifactPanel title="Conversation" subtitle="Your decisions and revision notes">
+      <ArtifactPanel
+        title="Conversation"
+        subtitle="Your decisions and revision notes"
+        className="flex min-h-0 flex-1 flex-col"
+        bodyClassName="flex min-h-0 flex-1 flex-col"
+      >
         <div className="space-y-2">
           {decisions.map((item, i) => {
             const { decision } = item;
             const checkpoint = decision.checkpoint || item.stepId;
             const meta = formatStepLabel(checkpoint);
             const action = formatAction(decision.action);
-            const extras: string[] = [];
-            if (decision.selected_pathway_ids?.length) {
-              extras.push(`${decision.selected_pathway_ids.length} pathway(s) selected`);
-            }
-            const detail = extras.length ? extras.join(" · ") : undefined;
+            const pathwayDetail = formatDecisionPathwaySummary(pathwayCandidates, decision);
+            const detail = decision.notes?.trim() || pathwayDetail || undefined;
 
             return (
               <ConversationEntry
@@ -113,7 +119,7 @@ export default function SessionContextPanel({
                 role="user"
                 label={action.charAt(0).toUpperCase() + action.slice(1)}
                 meta={meta}
-                body={decision.notes?.trim() || detail || undefined}
+                body={detail}
               />
             );
           })}

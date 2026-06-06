@@ -24,10 +24,12 @@ from mindbrew_v2.phases.checkpoints import (
     WORK_NODE_TO_STEP,
     apply_decision_to_state,
     artifact_for_checkpoint,
+    artifact_for_display,
     checkpoint_summary,
     decision_block_reason,
     downstream_steps,
     paused_at_step_checkpoint,
+    prepare_pathway_switch_state,
     prepare_step_restart_state,
     restart_anchor_for_step,
     restore_prior_step_memory,
@@ -38,6 +40,9 @@ from mindbrew_v2.phases.checkpoints import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Session statuses where the user may submit decisions, switch pathways, etc.
+USER_ACTION_STATUSES = frozenset({"awaiting_user", "failed", "interrupted"})
 
 _graph = None
 _checkpointer = None
@@ -97,6 +102,14 @@ def get_graph():
     return _graph
 
 
+def _user_action_block_reason(session_id: str, status: str) -> str | None:
+    if status not in USER_ACTION_STATUSES:
+        return f"Cannot apply action while session status is '{status}'."
+    if is_session_active(session_id):
+        return "Agent is already processing. Wait for the current step to finish."
+    return None
+
+
 def validate_decision(session_id: str, decision: HumanDecision, db) -> str | None:
     """Return an error message when a decision cannot be applied, else None."""
     from api.services.session_store import get_session
@@ -104,14 +117,11 @@ def validate_decision(session_id: str, decision: HumanDecision, db) -> str | Non
     row = get_session(db, session_id)
     if not row:
         return "Session not found"
-    if row.status != "awaiting_user":
-        return f"Cannot apply decision while session status is '{row.status}' (expected awaiting_user)."
+    if block := _user_action_block_reason(session_id, row.status):
+        return block
     step_id = CHECKPOINT_TO_STEP.get(decision.checkpoint, StepId.CP1_SPEC).value
     if row.current_step != step_id:
         return f"Decision expected at step '{row.current_step}', not '{step_id}'."
-    if is_session_active(session_id):
-        return "Agent is already processing. Wait for the current step to finish."
-
     graph = get_graph()
     config = _graph_run_config(session_id)
     snapshot = graph.get_state(config)
@@ -121,11 +131,24 @@ def validate_decision(session_id: str, decision: HumanDecision, db) -> str | Non
     return decision_block_reason(decision, current)
 
 
-def _initial_state(session_id: str, raw_brief: str) -> dict:
+def sync_session_title(session_id: str, title: str) -> None:
+    """Keep graph checkpoint state aligned with the persisted session title."""
+    graph = get_graph()
+    config = _graph_run_config(session_id)
+    snapshot = graph.get_state(config)
+    if not snapshot.values:
+        return
+    current = dict(snapshot.values)
+    current["session_title"] = title
+    graph.update_state(config, current)
+
+
+def _initial_state(session_id: str, raw_brief: str, session_title: str | None = None) -> dict:
     from mindbrew_v2.settings import get_settings
 
     return {
         "ticket": Ticket(id=session_id, raw_brief=raw_brief).model_dump(),
+        "session_title": session_title,
         "brief": None,
         "pathway_candidates": [],
         "approved_candidates": [],
@@ -227,15 +250,29 @@ async def _emit_awaiting_user(
     db,
     checkpoint: str,
     artifact: dict,
+    graph=None,
+    config: dict | None = None,
 ) -> dict:
     step = CHECKPOINT_TO_STEP.get(checkpoint, StepId.CP1_SPEC).value
-    upsert_step(db, session_id, step, "awaiting_user", artifact=artifact)
-    update_session_status(db, session_id, "awaiting_user", current_step=step)
+    validation_mode = artifact.get("validation_mode")
+    if not validation_mode and graph is not None and config is not None:
+        snapshot = graph.get_state(config)
+        if snapshot.values:
+            validation_mode = snapshot.values.get("validation_mode")
+    display_artifact = artifact_for_display(checkpoint, artifact)
+    upsert_step(db, session_id, step, "awaiting_user", artifact=display_artifact)
+    update_session_status(
+        db,
+        session_id,
+        "awaiting_user",
+        current_step=step,
+        validation_mode=validation_mode,
+    )
     evt = {
         "type": "awaiting_user",
         "step_id": step,
-        "summary": checkpoint_summary(checkpoint, artifact),
-        "artifact": artifact,
+        "summary": checkpoint_summary(checkpoint, display_artifact),
+        "artifact": display_artifact,
     }
     append_stream_event(db, session_id, "awaiting_user", evt)
     return evt
@@ -270,7 +307,7 @@ async def _handle_chunk(session_id: str, chunk: dict, db, graph, config: dict) -
         else:
             checkpoint = interrupt_value.get("checkpoint", "cp1_spec")
             artifact = interrupt_value.get("artifact", {})
-        return await _emit_awaiting_user(session_id, db, checkpoint, artifact)
+        return await _emit_awaiting_user(session_id, db, checkpoint, artifact, graph, config)
 
     node_name = list(chunk.keys())[0] if chunk else None
     if node_name and node_name != "__interrupt__":
@@ -298,7 +335,7 @@ async def _finalize_graph_run(session_id: str, db, graph, config: dict) -> dict 
     if not resolved:
         return None
     checkpoint, artifact = resolved
-    return await _emit_awaiting_user(session_id, db, checkpoint, artifact)
+    return await _emit_awaiting_user(session_id, db, checkpoint, artifact, graph, config)
 
 
 async def _run_graph_loop(session_id: str, db, graph, config: dict, graph_input: Any) -> AsyncIterator[dict]:
@@ -329,8 +366,11 @@ async def _run_graph_loop(session_id: str, db, graph, config: dict, graph_input:
 async def run_session_graph(session_id: str, raw_brief: str) -> AsyncIterator[dict]:
     graph = get_graph()
     config = _graph_run_config(session_id)
-    state = _initial_state(session_id, raw_brief)
     db = get_session_factory()()
+    from api.services.session_store import get_session
+
+    row = get_session(db, session_id)
+    state = _initial_state(session_id, raw_brief, row.title if row else None)
     current_step = StepId.CP1_SPEC.value
 
     try:
@@ -370,7 +410,7 @@ async def resume_session(session_id: str, decision: HumanDecision) -> AsyncItera
         yield {"type": "error", "message": "Session not found"}
         db.close()
         return
-    if row.status not in ("awaiting_user", "running"):
+    if row.status not in USER_ACTION_STATUSES and row.status != "running":
         yield {
             "type": "error",
             "message": f"Cannot apply decision while session status is '{row.status}'.",
@@ -418,12 +458,13 @@ async def resume_session(session_id: str, decision: HumanDecision) -> AsyncItera
     current = apply_decision_to_state(current, decision)
     graph.update_state(config, current)
     step_status = "completed" if decision.action == "proceed" else "running"
+    checkpoint_artifact = artifact_for_checkpoint(decision.checkpoint, current)
     upsert_step(
         db,
         session_id,
         step_id,
         step_status,
-        artifact=artifact_for_checkpoint(decision.checkpoint, current),
+        artifact=artifact_for_display(decision.checkpoint, checkpoint_artifact),
     )
 
     try:
@@ -511,7 +552,9 @@ def _load_restart_state(session_id: str, step_id: StepId, raw_brief: str, db) ->
     graph = get_graph()
     config = _graph_run_config(session_id)
     snapshot = graph.get_state(config)
-    base = dict(snapshot.values) if snapshot.values else _initial_state(session_id, raw_brief)
+    base = dict(snapshot.values) if snapshot.values else _initial_state(session_id, raw_brief, row.title)
+    if not base.get("session_title"):
+        base["session_title"] = row.title
     state = prepare_step_restart_state(base, step_id)
     return restore_prior_step_memory(state, step_id, row.steps or [])
 
@@ -577,6 +620,139 @@ def _archive_pathway_run_if_needed(db, session_id: str, step_id: StepId, current
         cp2.status if cp2 else "completed",
         artifact=cp2_artifact,
     )
+
+
+def validate_pathway_switch(session_id: str, decision: HumanDecision, db) -> str | None:
+    """Return an error when a downstream pathway re-selection cannot run, else None."""
+    from api.services.session_store import get_session
+
+    if decision.checkpoint != "cp2_pathways" or decision.action != "proceed":
+        return "Pathway switch requires a proceed decision at the pathway checkpoint."
+    if not decision.selected_pathway_ids:
+        return "Select at least one pathway before continuing."
+
+    row = get_session(db, session_id)
+    if not row:
+        return "Session not found"
+    if block := _user_action_block_reason(session_id, row.status):
+        return block
+
+    pipeline = step_pipeline({"validation_mode": row.validation_mode})
+    try:
+        cp2_idx = list(pipeline).index(StepId.CP2_PATHWAYS)
+        current_idx = list(pipeline).index(StepId(row.current_step))
+    except ValueError:
+        return f"Cannot switch pathway from step '{row.current_step}'."
+    if current_idx <= cp2_idx:
+        return "Use Proceed on the pathway step while it is the active checkpoint."
+
+    graph = get_graph()
+    config = _graph_run_config(session_id)
+    snapshot = graph.get_state(config)
+    if not snapshot.values:
+        return "No agent checkpoint found for this session. Start a new session or use Retry."
+
+    current = restore_prior_step_memory(dict(snapshot.values), StepId.CP2_PATHWAYS, row.steps or [])
+    return decision_block_reason(decision, current)
+
+
+async def switch_pathway_and_proceed(
+    session_id: str,
+    selected_pathway_ids: list[str],
+    primary_pathway_id: str | None = None,
+) -> AsyncIterator[dict]:
+    """Re-run downstream validation for a different pathway without re-searching."""
+    from api.services.session_store import append_decision, get_session
+
+    graph = get_graph()
+    config = _graph_run_config(session_id)
+    db = get_session_factory()()
+    step_id = StepId.CP2_PATHWAYS.value
+
+    decision = HumanDecision(
+        checkpoint="cp2_pathways",
+        action="proceed",
+        selected_pathway_ids=selected_pathway_ids,
+        primary_pathway_id=primary_pathway_id or (selected_pathway_ids[0] if selected_pathway_ids else None),
+    )
+
+    block = validate_pathway_switch(session_id, decision, db)
+    if block:
+        yield {"type": "error", "message": block}
+        db.close()
+        return
+
+    row = get_session(db, session_id)
+    if not row:
+        yield {"type": "error", "message": "Session not found"}
+        db.close()
+        return
+
+    snapshot = graph.get_state(config)
+    current = restore_prior_step_memory(dict(snapshot.values), StepId.CP2_PATHWAYS, row.steps or [])
+
+    _archive_pathway_run_if_needed(db, session_id, StepId.CP2_PATHWAYS, current)
+
+    updated = prepare_pathway_switch_state(current, decision)
+    block_reason = decision_block_reason(decision, updated)
+    if block_reason:
+        err = {"type": "error", "message": block_reason}
+        append_stream_event(db, session_id, "error", err)
+        yield err
+        db.close()
+        return
+
+    append_decision(db, session_id, step_id, decision)
+    graph.update_state(config, updated, as_node="cp2_pathway_review")
+
+    for downstream in downstream_steps(updated, StepId.CP2_PATHWAYS):
+        upsert_step(db, session_id, downstream.value, "pending", artifact=None)
+
+    checkpoint_artifact = artifact_for_checkpoint("cp2_pathways", updated)
+    upsert_step(
+        db,
+        session_id,
+        step_id,
+        "completed",
+        artifact=artifact_for_display("cp2_pathways", checkpoint_artifact),
+    )
+    update_session_status(
+        db,
+        session_id,
+        "running",
+        current_step=step_id,
+        validation_mode=updated.get("validation_mode"),
+    )
+    evt = {
+        "type": "pathway_switch",
+        "step_id": step_id,
+        "primary_pathway_id": updated.get("primary_pathway_id"),
+        "message": "Switching pathway and re-running downstream analysis",
+    }
+    append_stream_event(db, session_id, "pathway_switch", evt)
+    yield evt
+
+    try:
+        async for run_evt in _run_graph_loop(session_id, db, graph, config, None):
+            yield run_evt
+    except SessionInterrupted:
+        evt = await _emit_interrupted(session_id, db, step_id)
+        yield evt
+    except asyncio.CancelledError:
+        evt = await _emit_interrupted(session_id, db, step_id)
+        yield evt
+        raise
+    except Exception as exc:
+        db.rollback()
+        log_agent_event(
+            logger, logging.ERROR, "Pathway switch failed", session_id=session_id, exc_info=True
+        )
+        update_session_status(db, session_id, "failed")
+        err = agent_error_event(exc)
+        append_stream_event(db, session_id, "error", err)
+        yield err
+    finally:
+        db.close()
 
 
 async def restart_session_step(session_id: str, step_id: str) -> AsyncIterator[dict]:

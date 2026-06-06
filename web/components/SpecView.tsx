@@ -1,5 +1,6 @@
 import { keggCompoundLink } from "@/lib/bioLinks";
 import { link } from "@/lib/ui";
+import { formatDisplayPath } from "@/lib/format";
 import ArtifactPanel, { DetailRow } from "./ArtifactPanel";
 
 function formatOrganism(organism: unknown): string {
@@ -55,7 +56,7 @@ export default function SpecView({
         <DetailRow label="Validation">{String(validationMode || "pending")}</DetailRow>
         {gemProfile && (
           <DetailRow label="GEM model">
-            {String(gemProfile.gem_id || gemProfile.model_ref || "—")}
+            {String(gemProfile.gem_id || formatDisplayPath(gemProfile.model_ref) || "—")}
           </DetailRow>
         )}
       </dl>

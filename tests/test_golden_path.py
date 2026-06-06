@@ -50,9 +50,20 @@ def test_ticket1_full_fba_pipeline(ticket1_brief):
         candidates,
         candidates[0].id,
         ranked,
+        session_title="Natural Silicone Replacement From Plant Oil",
+        score_payloads=payloads,
     )
-    assert "What Worked" in report.markdown
-    assert "Recommendations" in report.markdown
-    assert "## References" in report.markdown
-    assert "## Confidence Methodology" in report.markdown
+    assert "# Natural Silicone Replacement From Plant Oil" in report.markdown
+    assert "## 1. Project Summary" in report.markdown
+    assert "## 5. Genetic Engineering Plan" in report.markdown
+    assert "## 7. Validation Plan" in report.markdown
+    assert "## 10. References" in report.markdown
+    assert "## Appendix" in report.markdown
+    assert "### Confidence Methodology" in report.markdown
+    assert "### Citation Validation" in report.markdown
+    assert report.project_summary
+    assert report.genetic_engineering_plan
     assert candidates[0].confidence_factors
+    assert "### Pathway Analysis" in report.markdown
+    assert "### FBA Validation" in report.markdown
+    assert "pw_wax_ester_far_ws" in report.markdown or candidates[0].id in report.markdown

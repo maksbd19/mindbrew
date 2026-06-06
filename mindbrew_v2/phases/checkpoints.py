@@ -1,6 +1,9 @@
 """Human checkpoint helpers."""
 
+from typing import Any
+
 from mindbrew_v2.models import CheckpointId, HumanDecision, StepId
+from mindbrew_v2.paths import sanitize_fba_plan_artifact
 
 CHECKPOINT_TO_STEP: dict[CheckpointId, StepId] = {
     "cp1_spec": StepId.CP1_SPEC,
@@ -104,6 +107,13 @@ NODE_TO_CHECKPOINT: dict[str, CheckpointId] = {
 }
 
 
+def artifact_for_display(checkpoint: CheckpointId, artifact: dict[str, Any]) -> dict[str, Any]:
+    """Shorten filesystem paths in persisted/SSE artifacts without mutating graph state."""
+    if checkpoint == "cp3_fba_plan":
+        return sanitize_fba_plan_artifact(artifact)
+    return artifact
+
+
 def artifact_for_checkpoint(checkpoint: CheckpointId, state: dict) -> dict:
     if checkpoint == "cp1_spec":
         return {
@@ -121,6 +131,10 @@ def artifact_for_checkpoint(checkpoint: CheckpointId, state: dict) -> dict:
     if checkpoint == "cp3_fba_plan":
         return {
             "gem_profile": state.get("gem_profile"),
+            "gem_discovery": state.get("gem_discovery"),
+            "find_ids_summary": state.get("find_ids_summary"),
+            "biomass_validation": state.get("biomass_validation"),
+            "biomass_validation_warning": state.get("biomass_validation_warning"),
             "score_payloads": state.get("score_payloads", []),
             "skipped": state.get("formalize_skipped", []),
         }
@@ -137,6 +151,16 @@ def artifact_for_checkpoint(checkpoint: CheckpointId, state: dict) -> dict:
     return {}
 
 
+def _compound_label(spec: dict | None) -> str:
+    if not spec:
+        return ""
+    return str(spec.get("name") or spec.get("class") or "").strip()
+
+
+def _join_summary_parts(parts: list[str]) -> str:
+    return " · ".join(p for p in parts if p)
+
+
 def checkpoint_summary(checkpoint: CheckpointId, artifact: dict) -> str:
     summaries = {
         "cp1_spec": "Review parsed research specification and GEM availability",
@@ -147,9 +171,91 @@ def checkpoint_summary(checkpoint: CheckpointId, artifact: dict) -> str:
         "cp5_report": "Approve final CRO-ready report",
     }
     base = summaries.get(checkpoint, checkpoint)
-    if checkpoint == "cp1_spec" and artifact.get("validation_mode"):
-        base += f" — mode: {artifact['validation_mode']}"
+    detail = _checkpoint_artifact_detail(checkpoint, artifact)
+    if detail:
+        return f"{base} — {detail}"
     return base
+
+
+def _checkpoint_artifact_detail(checkpoint: CheckpointId, artifact: dict) -> str:
+    if checkpoint == "cp1_spec":
+        brief = artifact.get("brief") or {}
+        target = _compound_label(brief.get("target"))
+        feedstock = _compound_label(brief.get("feedstock"))
+        organism = brief.get("organism") or []
+        org_label = ", ".join(str(o) for o in organism if o) if isinstance(organism, list) else str(organism)
+        mode = artifact.get("validation_mode") or brief.get("validation_mode")
+        product = f"{target} from {feedstock}" if target and feedstock else target or feedstock
+        return _join_summary_parts([
+            product,
+            org_label,
+            f"{mode} validation" if mode else "",
+        ])
+
+    if checkpoint == "cp2_pathways":
+        candidates = artifact.get("pathway_candidates") or []
+        count = len(candidates)
+        parts = [f"{count} pathway{'s' if count != 1 else ''} found" if count else ""]
+        primary = artifact.get("primary_pathway_id")
+        if primary:
+            match = next((c for c in candidates if c.get("id") == primary), None)
+            name = (match or {}).get("name") or primary
+            parts.append(f"selected: {name}")
+        return _join_summary_parts(parts)
+
+    if checkpoint == "cp3_fba_plan":
+        payloads = artifact.get("score_payloads") or []
+        skipped = artifact.get("skipped") or []
+        gem = (artifact.get("gem_profile") or {}).get("gem_id") or (artifact.get("gem_profile") or {}).get("model_name")
+        payload_count = len(payloads)
+        return _join_summary_parts([
+            f"{payload_count} FBA payload{'s' if payload_count != 1 else ''} ready" if payload_count else "No FBA payloads",
+            f"GEM {gem}" if gem else "",
+            f"{len(skipped)} skipped" if skipped else "",
+        ])
+
+    if checkpoint == "cp3b_literature_plan":
+        plan = artifact.get("literature_plan") or {}
+        genes = len(plan.get("gene_suggestions") or [])
+        risks = len(plan.get("known_risks") or [])
+        pathway = plan.get("pathway_name") or plan.get("pathway_id") or ""
+        return _join_summary_parts([
+            str(pathway) if pathway else "",
+            f"{genes} gene edit{'s' if genes != 1 else ''}" if genes else "",
+            f"{risks} known risk{'s' if risks != 1 else ''}" if risks else "",
+        ])
+
+    if checkpoint == "cp4_fba_results":
+        results = artifact.get("fba_results") or []
+        if not results:
+            return ""
+        ranked = sorted(results, key=lambda r: r.get("rank") or 999)
+        top = ranked[0]
+        verdict_counts: dict[str, int] = {}
+        for result in results:
+            verdict = str(result.get("verdict") or "unknown")
+            verdict_counts[verdict] = verdict_counts.get(verdict, 0) + 1
+        verdict_summary = ", ".join(f"{count} {verdict}" for verdict, count in verdict_counts.items())
+        top_yield = top.get("yield_corrected_mol_per_mol_substrate")
+        top_part = f"top: {top.get('verdict')}"
+        if top_yield is not None:
+            top_part += f" ({top_yield} mol/mol)"
+        return _join_summary_parts([
+            f"{len(results)} pathway{'s' if len(results) != 1 else ''} scored",
+            verdict_summary,
+            top_part if top.get("verdict") else "",
+        ])
+
+    if checkpoint == "cp5_report":
+        report = artifact.get("report") or {}
+        markdown = report.get("markdown") or ""
+        section_count = markdown.count("\n## ")
+        return _join_summary_parts([
+            "CRO report ready" if markdown else "",
+            f"{section_count} sections" if section_count else "",
+        ])
+
+    return ""
 
 
 def step_pipeline(state: dict) -> tuple[StepId, ...]:
@@ -320,6 +426,25 @@ def decision_block_reason(decision: HumanDecision, state: dict) -> str | None:
             return "Cannot proceed: select at least one pathway before continuing."
 
     return None
+
+
+def prepare_pathway_switch_state(state: dict, decision: HumanDecision) -> dict:
+    """Apply a new pathway selection and clear downstream artifacts for re-validation."""
+    updated = dict(state)
+    for downstream_step in downstream_steps(state, StepId.CP2_PATHWAYS):
+        updated.update(_STEP_CLEAR_FIELDS.get(downstream_step, {}))
+
+    pipeline = step_pipeline(updated)
+    try:
+        idx = list(pipeline).index(StepId.CP2_PATHWAYS)
+        checkpoints_to_clear = {STEP_TO_CHECKPOINT[s] for s in pipeline[idx:]}
+    except ValueError:
+        checkpoints_to_clear = {"cp2_pathways"}
+
+    updated["human_decisions"] = [
+        d for d in updated.get("human_decisions", []) if d.get("checkpoint") not in checkpoints_to_clear
+    ]
+    return apply_decision_to_state(updated, decision)
 
 
 def apply_decision_to_state(state: dict, decision: HumanDecision) -> dict:

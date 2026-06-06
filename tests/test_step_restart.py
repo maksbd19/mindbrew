@@ -11,7 +11,9 @@ from langgraph.types import Command
 
 from mindbrew_v2.graph import build_graph
 from mindbrew_v2.models import StepId
+from mindbrew_v2.models import HumanDecision
 from mindbrew_v2.phases.checkpoints import (
+    prepare_pathway_switch_state,
     prepare_step_restart_state,
     paused_at_step_checkpoint,
     restart_anchor_for_step,
@@ -48,6 +50,28 @@ class _StepRow:
         self.step_id = step_id
         self.artifact = artifact
         self.human_decisions = human_decisions or []
+
+
+def test_prepare_pathway_switch_keeps_candidates_clears_downstream():
+    state = _base_state()
+    state["pathway_candidates"] = [{"id": "p1", "name": "Path A"}, {"id": "p2", "name": "Path B"}]
+    decision = HumanDecision(
+        checkpoint="cp2_pathways",
+        action="proceed",
+        selected_pathway_ids=["p2"],
+        primary_pathway_id="p2",
+    )
+    updated = prepare_pathway_switch_state(state, decision)
+    assert updated["brief"]["organism"] == ["Yarrowia lipolytica"]
+    assert len(updated["pathway_candidates"]) == 2
+    assert updated["primary_pathway_id"] == "p2"
+    assert updated["approved_candidates"] == [{"id": "p2", "name": "Path B"}]
+    assert updated["score_payloads"] == []
+    assert updated["fba_results"] == []
+    assert updated["report"] is None
+    cp2_decisions = [d for d in updated["human_decisions"] if d.get("checkpoint") == "cp2_pathways"]
+    assert len(cp2_decisions) == 1
+    assert cp2_decisions[0]["primary_pathway_id"] == "p2"
 
 
 def test_prepare_step_restart_cp2_keeps_brief():

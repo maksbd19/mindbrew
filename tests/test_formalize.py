@@ -15,10 +15,12 @@ from mindbrew_v2.models import (
     GemProfile,
     PathwayCandidate,
     ReactionStep,
+    ResearchBrief,
 )
+from mindbrew_v2.phases.fba_metabolite_resolver import infer_fba_metabolite_mapping
 from mindbrew_v2.phases.fba_payloads import (
+    build_far_ws_reactions,
     build_payload_from_find_ids,
-    build_wax_ester_reactions,
     has_far_ws,
     resolve_knockouts,
 )
@@ -71,9 +73,17 @@ def test_has_far_ws_detects_enzymes():
     assert has_ws is True
 
 
-def test_build_wax_ester_reactions_uses_model_ids():
+def test_build_far_ws_reactions_uses_model_ids():
+    from mindbrew_v2.phases.fba_metabolite_resolver import FbaMetaboliteMapping
+
     recommended = _offline_find_ids()["recommended"]
-    reactions = build_wax_ester_reactions(recommended, has_far=True, has_ws=True)
+    mapping = FbaMetaboliteMapping(
+        product_metabolite="wax_ester_c",
+        fatty_alcohol_metabolite="oleyl_alcohol_c",
+        substrate_moles_per_product=2.0,
+        pathway_template="far_ws",
+    )
+    reactions = build_far_ws_reactions(recommended, mapping, has_far=True, has_ws=True)
     assert reactions is not None
     assert len(reactions) == 2
     far = reactions[0]
@@ -90,7 +100,14 @@ def test_resolve_knockouts_from_gene_alias():
 
 
 def test_build_payload_offline_schema():
-    payload = build_payload_from_find_ids(_wax_candidate(), _gem_profile(), _offline_find_ids())
+    brief = ResearchBrief(
+        ticket_id="t1",
+        raw_brief="plant oil wax ester production",
+        target={"class": "wax_ester"},
+    )
+    find_ids = _offline_find_ids()
+    mapping = infer_fba_metabolite_mapping(brief, _wax_candidate(), find_ids)
+    payload = build_payload_from_find_ids(_wax_candidate(), _gem_profile(), find_ids, mapping)
     assert payload is not None
     assert payload.carbon_source_rxn == "EX_ocdcea_LPAREN_e_RPAREN_"
     assert payload.product_metabolite == "wax_ester_c"
@@ -100,8 +117,6 @@ def test_build_payload_offline_schema():
 
 
 def test_formalize_skips_non_wax_pathway(tmp_path, monkeypatch):
-    from mindbrew_v2.models import ResearchBrief
-
     monkeypatch.setenv("GEM_MODEL_CACHE_DIR", str(tmp_path))
     from mindbrew_v2.settings import get_settings
 

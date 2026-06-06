@@ -3,6 +3,7 @@ import { cn, card, cardTitle } from "@/lib/ui";
 export default function ArtifactPanel({
   title,
   subtitle,
+  headerActions,
   children,
   className,
   bodyClassName,
@@ -10,16 +11,20 @@ export default function ArtifactPanel({
 }: {
   title: string;
   subtitle?: string;
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
   bodyClassName?: string;
   noPadding?: boolean;
 }) {
   return (
-    <section className={cn(card, "overflow-hidden", className)}>
-      <div className="border-b border-border-subtle px-5 py-4">
-        <h2 className={cardTitle}>{title}</h2>
-        {subtitle && <p className="mt-0.5 text-[13px] text-muted">{subtitle}</p>}
+    <section className={cn(card, "overflow-x-hidden", className)}>
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border-subtle px-5 py-4">
+        <div className="min-w-0">
+          <h2 className={cardTitle}>{title}</h2>
+          {subtitle && <p className="mt-0.5 text-[13px] text-muted">{subtitle}</p>}
+        </div>
+        {headerActions}
       </div>
       <div className={cn(!noPadding && "px-5 py-4", bodyClassName)}>{children}</div>
     </section>

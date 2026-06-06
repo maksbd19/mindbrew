@@ -92,16 +92,30 @@ export type PathwayCandidate = {
   biomni_provenance?: string[];
 };
 
+export type FbaCalculationStep = {
+  step: number;
+  title: string;
+  detail?: string;
+};
+
 export type FbaResult = {
   pathway_id: string;
   status: string;
   verdict: string;
+  objective_used?: string;
   predicted_product_flux?: number | null;
   growth_rate?: number | null;
+  yield_mol_per_mol_substrate?: number | null;
   yield_corrected_mol_per_mol_substrate?: number | null;
   product_confidence_level?: string;
+  calibration_level?: string;
   carbon_audit_sole_source?: boolean | null;
   carbon_audit?: Record<string, unknown>;
+  calculation_steps?: FbaCalculationStep[];
+  simulation_context?: Record<string, unknown>;
+  inserted_reactions?: string[];
+  edits_applied?: Record<string, unknown>;
+  solver_message?: string;
   calibration_rationale?: string;
   calibration_warnings?: string[];
   verdict_rationale?: string;
@@ -112,6 +126,9 @@ export type FbaResult = {
     flux: number;
     at_bound: boolean;
     explanation?: string;
+    min_flux?: number | null;
+    max_flux?: number | null;
+    flux_span?: number | null;
   }>;
   literature_refs?: Citation[];
 };

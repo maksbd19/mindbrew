@@ -1,11 +1,8 @@
-const STEP_LABELS: Record<string, string> = {
-  cp1_spec: "Spec",
-  cp2_pathways: "Pathways",
-  cp3_fba_plan: "FBA Plan",
-  cp3b_literature_plan: "Literature",
-  cp4_fba_results: "FBA Results",
-  cp5_report: "Report",
-};
+import { SESSION_STEPS } from "./steps";
+
+const STEP_LABELS: Record<string, string> = Object.fromEntries(
+  SESSION_STEPS.map((s) => [s.id, s.label])
+);
 
 const STATUS_LABELS: Record<string, string> = {
   awaiting_user: "Awaiting review",
@@ -44,6 +41,13 @@ export function formatRelativeDate(iso: string): string {
     day: "numeric",
     year: date.getFullYear() !== new Date().getFullYear() ? "numeric" : undefined,
   });
+}
+
+export function formatDisplayPath(path: string | null | undefined | unknown): string {
+  if (path == null || typeof path !== "string" || !path) return "";
+  const normalized = path.replace(/\\/g, "/");
+  const name = normalized.split("/").filter(Boolean).pop();
+  return name ?? path;
 }
 
 export function formatFullDate(iso: string): string {

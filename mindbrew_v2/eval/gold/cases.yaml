@@ -175,6 +175,6 @@ cases:
       - type: validation_mode_in
         values: [fba]
       - type: report_has_sections
-        values: [what worked, what didn't, recommendations]
+        values: [project summary, genetic engineering plan, validation plan]
     requires_live_api: false
     weight: 3.0

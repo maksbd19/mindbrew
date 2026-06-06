@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
@@ -26,6 +27,7 @@ from api.services.session_store import (
     update_session_title,
 )
 from api.services.title_inference import infer_session_title, is_auto_title
+from mindbrew_v2.export.report_export import export_report_docx, export_report_pdf, safe_filename
 from mindbrew_v2.models import HumanDecision, StepId
 from mindbrew_v2.phases.checkpoints import STEP_TO_CHECKPOINT
 
@@ -45,6 +47,11 @@ class DecideRequest(BaseModel):
     action: str
     notes: str | None = None
     selected_pathway_ids: list[str] | None = None
+    primary_pathway_id: str | None = None
+
+
+class SwitchPathwayRequest(BaseModel):
+    selected_pathway_ids: list[str]
     primary_pathway_id: str | None = None
 
 
@@ -116,6 +123,48 @@ def _brief_preview(raw_brief: str, limit: int = 120) -> str:
     return text if len(text) <= limit else f"{text[: limit - 1]}…"
 
 
+def _report_from_session(row) -> tuple[str, str]:
+    for step in row.steps or []:
+        if step.step_id != "cp5_report" or not step.artifact:
+            continue
+        report = step.artifact.get("report") or {}
+        markdown = report.get("markdown")
+        if isinstance(markdown, str) and markdown.strip():
+            filename_base = safe_filename(row.title or "brewmind-report")
+            return markdown, filename_base
+    raise HTTPException(404, "Report not available")
+
+
+@router.get("/{session_id}/report/export")
+def export_report(
+    session_id: str,
+    format: Literal["pdf", "docx"],
+    db: Session = Depends(get_db),
+):
+    row = get_session(db, session_id)
+    if not row:
+        raise HTTPException(404, "Session not found")
+
+    markdown, filename_base = _report_from_session(row)
+    try:
+        if format == "pdf":
+            content = export_report_pdf(markdown)
+            media_type = "application/pdf"
+            filename = f"{filename_base}.pdf"
+        else:
+            content = export_report_docx(markdown)
+            media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            filename = f"{filename_base}.docx"
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 def _reject_action(db: Session, session_id: str, action: str, reason: str) -> None:
     append_stream_event(
         db,
@@ -177,6 +226,7 @@ async def _infer_title_background(session_id: str, raw_brief: str) -> None:
         row = get_session(db, session_id)
         if row and is_auto_title(row.title, row.raw_brief):
             update_session_title(db, session_id, title)
+            graph_runner.sync_session_title(session_id, title)
     finally:
         db.close()
 
@@ -201,6 +251,17 @@ async def _run_restart_background(session_id: str, step_id: str):
         pass
 
 
+async def _run_pathway_switch_background(
+    session_id: str,
+    selected_pathway_ids: list[str],
+    primary_pathway_id: str | None,
+):
+    async for _ in graph_runner.switch_pathway_and_proceed(
+        session_id, selected_pathway_ids, primary_pathway_id
+    ):
+        pass
+
+
 @router.get("/{session_id}")
 def get_one(session_id: str, db: Session = Depends(get_db)):
     row = get_session(db, session_id)
@@ -217,6 +278,7 @@ def update_one(session_id: str, body: UpdateSessionRequest, db: Session = Depend
     updated = update_session_title(db, session_id, body.title)
     if not updated:
         raise HTTPException(404, "Session not found")
+    graph_runner.sync_session_title(session_id, updated.title)
     return _session_to_dict(updated, session_id)
 
 
@@ -243,6 +305,7 @@ async def suggest_title(
     updated = update_session_title(db, session_id, title)
     if not updated:
         raise HTTPException(404, "Session not found")
+    graph_runner.sync_session_title(session_id, updated.title)
     return _session_to_dict(updated, session_id)
 
 
@@ -380,6 +443,44 @@ async def stream(session_id: str, after_seq: int = 0, db: Session = Depends(get_
             await asyncio.sleep(0.25 if agent_active else 0.5)
 
     return EventSourceResponse(event_generator())
+
+
+@router.post("/{session_id}/pathway/switch")
+async def switch_pathway(session_id: str, body: SwitchPathwayRequest, db: Session = Depends(get_db)):
+    row = get_session(db, session_id)
+    if not row:
+        raise HTTPException(404, "Session not found")
+
+    decision = HumanDecision(
+        checkpoint="cp2_pathways",
+        action="proceed",
+        selected_pathway_ids=body.selected_pathway_ids,
+        primary_pathway_id=body.primary_pathway_id,
+    )
+    error = graph_runner.validate_pathway_switch(session_id, decision, db)
+    if error:
+        _reject_action(db, session_id, "pathway_switch_requested", error)
+        raise HTTPException(409, error)
+
+    if session_id in _running:
+        _reject_action(db, session_id, "pathway_switch_requested", "Agent is already processing")
+        raise HTTPException(409, "Agent is already processing")
+
+    append_stream_event(
+        db,
+        session_id,
+        "pathway_switch_requested",
+        {
+            "type": "pathway_switch_requested",
+            "primary_pathway_id": body.primary_pathway_id or (body.selected_pathway_ids[0] if body.selected_pathway_ids else None),
+        },
+    )
+    _track_task(
+        session_id,
+        _run_pathway_switch_background(session_id, body.selected_pathway_ids, body.primary_pathway_id),
+    )
+    db.refresh(row)
+    return _session_to_dict(row, session_id)
 
 
 @router.post("/{session_id}/steps/{step_id}/restart")
