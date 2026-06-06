@@ -1,0 +1,12 @@
+{
+  "ticket_id": "live_microbiome_template_v1",
+  "raw_brief": "Anonymized scalp microbiome postbiotic brief for dandruff via fermentation.",
+  "organism": [],
+  "feedstock": {"name": "plant oil", "class": ""},
+  "target": {"name": "fermentation-derived lipid", "class": "postbiotic"},
+  "target_function": "scalp microbiome balance, dandruff, barrier support",
+  "constraints": ["natural", "sustainably sourced"],
+  "tasks": ["pathway identification", "production outline"],
+  "gatekeeper_verdict": "PROCEED",
+  "selected_gem_id": null
+}

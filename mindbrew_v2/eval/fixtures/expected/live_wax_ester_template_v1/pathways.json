@@ -1,0 +1,11 @@
+[
+  {
+    "id": "pw_wax_ester_far_ws",
+    "name": "Wax ester via FAR + WS",
+    "enzymes": ["FAR", "WS", "wax ester synthase"],
+    "reaction_steps": [
+      {"enzyme_name": "fatty acyl-CoA reductase (FAR)", "gene_names": ["FAR"]},
+      {"enzyme_name": "wax ester synthase (WS)", "gene_names": ["WS", "WSD1"]}
+    ]
+  }
+]

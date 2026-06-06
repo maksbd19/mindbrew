@@ -1,0 +1,72 @@
+cases:
+  - id: live_wax_ester_template_v1
+    tier: live
+    phase: e2e
+    ticket: template_fba
+    description: |
+      TEMPLATE — replace raw_brief and gold fixtures after reviewing a live run.
+      FBA-path silicone replacement from plant oil (Y. lipolytica class).
+    input:
+      raw_brief: |
+        We're looking for a natural replacement for silicones in our premium
+        haircare line. We want smoothness and frizz control like dimethicone,
+        from a common plant oil through fermentation in Yarrowia lipolytica.
+    gold:
+      brief_ref: expected/live_wax_ester_template_v1/brief.json
+      pathways_ref: expected/live_wax_ester_template_v1/pathways.json
+    assertions:
+      - type: gold_brief_fields
+      - type: gold_pathway_enzymes
+        values: [far, ws]
+      - type: validation_mode_in
+        values: [fba]
+      - type: fba_full_pipeline
+        verdict_values: [pass, marginal]
+      - type: report_has_sections
+        values: [project summary, genetic engineering plan, validation plan]
+    requires_live_api: true
+    weight: 5.0
+
+  - id: live_microbiome_template_v1
+    tier: live
+    phase: e2e
+    ticket: template_literature
+    description: |
+      TEMPLATE — replace after reviewing a live run.
+      Literature-path scalp microbiome / postbiotic brief (no registry GEM).
+    input:
+      raw_brief: |
+        We're developing a scalp-health ingredient that supports a balanced scalp
+        microbiome and helps with dandruff. We want something fermentation-derived
+        that can calm the scalp and keep the microbiome in check.
+    gold:
+      brief_ref: expected/live_microbiome_template_v1/brief.json
+      pathways_ref: expected/live_microbiome_template_v1/pathways.json
+    assertions:
+      - type: gold_brief_fields
+      - type: validation_mode_in
+        values: [literature]
+      - type: candidate_count_min
+        value: 1
+      - type: lit_plan_has_genes
+    requires_live_api: true
+    weight: 5.0
+
+  - id: live_ambiguous_template_v1
+    tier: live
+    phase: intake
+    ticket: template_edge
+    description: |
+      TEMPLATE — replace after reviewing a live run.
+      Ambiguous brief should trigger CLARIFY gatekeeper.
+    input:
+      raw_brief: |
+        We need a natural ingredient for haircare made by fermentation.
+        Can you design a production route?
+    gold:
+      brief_ref: expected/live_ambiguous_template_v1/brief.json
+    assertions:
+      - type: gold_brief_fields
+        fields: [gatekeeper_verdict]
+    requires_live_api: true
+    weight: 3.0

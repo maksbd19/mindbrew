@@ -18,10 +18,12 @@ The product is **not** a literature summary. The moat is **flux-validated pathwa
 - [Data and persistence](#data-and-persistence)
 - [API surface](#api-surface)
 - [Getting started](#getting-started)
+- [Deployment](#deployment)
 - [Configuration](#configuration)
 - [Evaluation harness](#evaluation-harness)
 - [Extending the system](#extending-the-system)
 - [Version policy (v1 vs v2)](#version-policy-v1-vs-v2)
+- [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -163,7 +165,7 @@ flowchart TD
 | 2 | **CP2 — Pathways** | 3–7 pathway candidates; user selects | same |
 | 3 | **CP3 / CP3b — Plan** | GEM, scenario, FAR/WS reactions with model metabolite IDs, knockouts | Enzymes, gene suggestions, citations, gaps |
 | 4 | **CP4 — Results** | Ranked pass/fail, flux, bottlenecks | skipped |
-| 5 | **CP5 — Report** | CRO-ready markdown: worked / didn't / recommendations | same (literature tier labeled) |
+| 5 | **CP5 — Report** | CRO-ready markdown with executive summary; PDF/DOCX export | same (literature tier labeled) |
 
 **Mandatory FBA workflow** (when GEM matched):
 
@@ -192,6 +194,7 @@ brewmind/
 │   ├── phases/
 │   │   ├── intake.py         # Ticket → ResearchBrief
 │   │   ├── literature_search.py  # Literature pathway search phase (LLM)
+│   │   ├── gem_discovery.py  # Literature-driven GSMM discovery
 │   │   ├── formalize.py      # PathwayCandidate → FBA payloads
 │   │   ├── fba_payloads.py   # Wax-ester FAR/WS stoichiometry from find_ids IDs
 │   │   ├── literature_plan.py
@@ -206,11 +209,21 @@ brewmind/
 │   │   └── fba_client.py             # Direct import wrapper for find_ids + fba_tool
 │   ├── graph.py              # LangGraph definition
 │   ├── models.py             # Pydantic state models
+│   ├── export/
+│   │   └── report_export.py  # PDF / DOCX from report markdown
 │   ├── offline/              # Deterministic fixtures (BREWMIND_OFFLINE)
 │   └── eval/                 # Gold-truth harness
-│       ├── gold/cases.yaml
-│       ├── scorers/
-│       └── run_eval.py
+│       ├── gold/
+│       │   ├── cases.yaml         # Offline regression cases (CI)
+│       │   ├── live_cases.yaml    # Live LLM + gold-label benchmarks
+│       │   └── sample_cases.yaml  # Reference samples (run_sample_cases only)
+│       ├── fixtures/              # Briefs, pathways, payloads, expected gold
+│       ├── annotations/           # Expert notes on acceptable variants
+│       ├── scorers/               # Per-phase scorers + gold_assertions
+│       ├── reports/               # Generated scorecards (.md + .json)
+│       ├── schema.yaml            # Case fields + assertion types
+│       ├── run_eval.py            # Main eval CLI → scorecard files
+│       └── run_sample_cases.py    # Quick table output for sample cases
 ├── api/                      # FastAPI service
 │   ├── main.py
 │   ├── routes/sessions.py
@@ -228,6 +241,7 @@ brewmind/
 │   ├── components/           # StepSidebar, StreamLog, ArtifactView, ReviseDialog
 │   └── lib/api.ts
 ├── vendor/FBA_Analysis/      # FBA engine from yanglu12/FBA_Analysis (git submodule)
+├── scripts/                  # deploy-render.sh, run-migrations.sh, poc-smoke-test.sh, …
 ├── tests/
 ├── pyproject.toml
 ├── uv.lock
@@ -250,6 +264,7 @@ brewmind/
 - Lamin indexes ontologies and omics datasets, **not** PubMed papers — both are used together for grounding
 - Optional deps: `uv sync --extra literature` installs `bionty` + `lamindb` for Lamin; PubMed/Crossref work with core `httpx` only
 - Set `LITERATURE_RETRIEVAL_ENABLED=false` to fall back to LLM-only (no retrieval calls)
+- **GEM discovery** ([`gem_discovery.py`](mindbrew_v2/phases/gem_discovery.py)): after pathway search, additional retrieval queries identify GSMM names, biomass context, and SBML sources from literature when the static registry does not match
 
 ### FBA_Analysis (validation)
 
@@ -321,6 +336,7 @@ Session lifecycle: `running` → `awaiting_user` (at each checkpoint) → `compl
 | `POST` | `/sessions/{id}/steps/{step_id}/restart` | Re-run the current step; prior-step artifacts are kept |
 | `POST` | `/sessions/{id}/interrupt` | Stop a **running** agent (between checkpoints) |
 | `POST` | `/sessions/{id}/resume` | Continue from last checkpoint after interrupt |
+| `GET` | `/sessions/{id}/report/export?format=pdf\|docx` | Download CRO report as PDF or Word |
 | `DELETE` | `/sessions/{id}` | Delete session |
 
 **SSE event types:** `step_start`, `step_complete`, `awaiting_user`, `interrupted`, `log`, `heartbeat`, `node_start`, `node_end`, `tool_start`, `tool_end`, `llm_call`, `error`
@@ -363,6 +379,8 @@ cd web && npm install && npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) → **New session** → paste your R&D brief.
 
+At **CP5 — Report**, use **Download PDF** or **Download Word** in the UI (or `GET /sessions/{id}/report/export?format=pdf`).
+
 ### Using uv
 
 ```bash
@@ -379,6 +397,7 @@ Optional dependency groups:
 | `dev` | pytest, ruff | Tests and linting |
 | `fba` | cobra, python-libsbml, optlang | Live FBA scoring (CP3–CP4) |
 | `literature` | bionty, lamindb | Lamin ontology/dataset retrieval |
+| `observability` | OpenTelemetry SDK + FastAPI instrumentation | Optional OTLP export |
 
 ### Alternative: pip
 
@@ -386,6 +405,36 @@ Optional dependency groups:
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,fba]"
 ```
+
+---
+
+## Deployment
+
+Production uses a **hybrid stack** (no monolithic Docker Compose required):
+
+| Component | Platform | Notes |
+|-----------|----------|-------|
+| **Postgres** | Supabase | Use **Session pooler** URI (IPv4), not Direct connection |
+| **API** | Render | `render.yaml` Blueprint — FastAPI + LangGraph |
+| **Web** | Vercel | Root directory `web/`; proxies browser calls to Render API |
+
+**One-time setup:**
+
+```bash
+# 1. Create Supabase project → copy Session pooler DATABASE_URL
+# 2. Run migrations (separate from app start — not on uvicorn boot)
+DATABASE_URL='postgresql://…' ./scripts/run-migrations.sh
+
+# 3. Deploy API (Render Dashboard → Blueprint from repo, or):
+./scripts/deploy-render.sh    # prints step-by-step checklist
+
+# 4. Deploy web (Vercel):
+./scripts/deploy-vercel.sh    # set API_URL + NEXT_PUBLIC_API_URL to Render URL
+```
+
+Set on Render `brewmind-api`: `DATABASE_URL`, `NEBIUS_*`, `CORS_ORIGINS` (your Vercel origin). Set on Vercel: `API_URL` and `NEXT_PUBLIC_API_URL` to the Render API base (e.g. `https://brewmind-api.onrender.com`).
+
+Smoke test after deploy: `./scripts/poc-smoke-test.sh`.
 
 ---
 
@@ -400,7 +449,9 @@ Copy `.env.example` → `.env`. All variables below are **required** for the Pyt
 | `NEBIUS_MODEL` | LLM model (e.g. `deepseek-ai/DeepSeek-V4-Pro`) |
 | `NEBIUS_BASE_URL` | Nebius API base URL (e.g. `https://api.tokenfactory.nebius.com/v1/`) |
 | `BREWMIND_OFFLINE` | `true` = fixtures only, no external API calls |
+| `GEM_MODEL_CACHE_DIR` | Local cache for downloaded SBML models (default `data/gem_models`) |
 | `MAX_REVISIONS` | Max human revision cycles per session |
+| `PROGRESS_HEARTBEAT_INTERVAL_SEC` | SSE heartbeat interval during long steps (default `15`) |
 | `LITERATURE_RETRIEVAL_ENABLED` | `true` = RAG retrieval before LLM pathway extraction (default) |
 | `LAMIN_PUBLIC_DBS` | Comma-separated public Lamin DBs (default `laminlabs/cellxgene`) |
 | `LITERATURE_MAX_ONTOLOGY_HITS` | Max bionty ontology hits per query (default `5`) |
@@ -411,29 +462,123 @@ Copy `.env.example` → `.env`. All variables below are **required** for the Pyt
 | `API_URL` | Backend URL for Next.js SSR (default `http://127.0.0.1:8000`) |
 | `NEXT_PUBLIC_API_URL` | Browser API base (default `/api` — proxied, avoids CORS) |
 | `CORS_ORIGINS` | Optional comma-separated extra CORS origins for direct API access |
+| `LANGSMITH_API_KEY` | Optional — trace LLM / LangGraph runs |
+| `LANGSMITH_PROJECT` | LangSmith project name (default `brewmind`) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Optional — OpenTelemetry export (requires `--extra observability`) |
 
 ---
 
 ## Evaluation harness
 
-Gold-truth cases in YAML — extend by appending to `mindbrew_v2/eval/gold/cases.yaml`:
+Regression and quality benchmarks for each pipeline phase. Cases are YAML with machine-checkable **assertions**; live-tier cases also compare against expert-reviewed **gold fixtures**.
+
+### Layout
+
+```
+mindbrew_v2/eval/
+├── gold/
+│   ├── cases.yaml          # Offline cases — loaded by run_eval (CI regression)
+│   ├── live_cases.yaml     # Live cases — require Nebius + --live
+│   └── sample_cases.yaml   # Reference / draft cases — run_sample_cases only
+├── fixtures/
+│   ├── briefs/             # Frozen ResearchBrief JSON for fixture-driven cases
+│   ├── pathways/           # Frozen PathwayCandidate lists
+│   ├── payloads/           # ScorePathwayPayload for FBA-only cases
+│   └── expected/{case_id}/ # Gold labels (brief.json, pathways.json, …)
+├── annotations/{case_id}.md  # Acceptable variants for reviewers
+├── scorers/                # intake, pathways, formalize, fba, e2e
+├── schema.yaml             # Field docs + assertion type reference
+├── run_eval.py             # Main harness → scorecard .md + .json
+└── run_sample_cases.py     # Quick pass/fail table (especially for samples)
+```
+
+### Phases and tiers
+
+| Phase | What it scores |
+|-------|----------------|
+| `intake` | Raw brief → `ResearchBrief` (gatekeeper, fields) |
+| `pathways` | Literature search → pathway candidates + citations |
+| `formalize` | Brief + candidates → FBA payloads (or skip when unmapped) |
+| `fba` | `score_pathway` on fixture payloads |
+| `e2e` | Full pipeline through report sections |
+
+| Tier | Case file | `BREWMIND_OFFLINE` | When to use |
+|------|-----------|-------------------|-------------|
+| **offline** | `gold/cases.yaml` | `true` (forced) | CI, fast local regression |
+| **live** | `gold/live_cases.yaml` | `false` | Quality benchmark vs gold fixtures |
+| **sample** | `gold/sample_cases.yaml` | either | Iterating on new cases before promoting |
+
+### `run_eval` — main harness
+
+Writes timestamped scorecards to `mindbrew_v2/eval/reports/` (`scorecard_{tier}_{stamp}.md` and `.json`).
 
 ```bash
-# Offline (no API keys — CI-friendly)
-BREWMIND_OFFLINE=true uv run python -m mindbrew_v2.eval.run_eval
+# Offline regression (CI-friendly — no API key needed)
+uv run python -m mindbrew_v2.eval.run_eval --tier offline
 
 # Single phase
-BREWMIND_OFFLINE=true uv run python -m mindbrew_v2.eval.run_eval --phase intake
+uv run python -m mindbrew_v2.eval.run_eval --tier offline --phase intake
+uv run python -m mindbrew_v2.eval.run_eval --tier offline --phase e2e
 
-# Live (requires Nebius)
-uv run python -m mindbrew_v2.eval.run_eval --live
+# Live quality benchmark (NEBIUS_API_KEY in .env, uv sync --extra fba recommended)
+uv run python -m mindbrew_v2.eval.run_eval --tier live --live
+
+# Offline pass, then live pass in one invocation
+uv run python -m mindbrew_v2.eval.run_eval --tier all --live
 ```
 
-Scorecards are written to `mindbrew_v2/eval/reports/`.
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--tier offline\|live\|all` | Which case files to load (default `offline`) |
+| `--live` | Required when `--tier live` or `--tier all`; runs `requires_live_api: true` cases |
+| `--phase PHASE` | Run only `intake`, `pathways`, `formalize`, `fba`, or `e2e` |
+
+`run_eval` sets `BREWMIND_OFFLINE` automatically per tier. You do not need to prefix commands with `BREWMIND_OFFLINE=…`.
+
+### `run_sample_cases` — quick table output
+
+Uses `gold/sample_cases.yaml` only (not loaded by `run_eval`). Prints a pass/fail table to stdout; exit code `1` if any case failed.
 
 ```bash
-uv run pytest tests/    # unit + golden-path tests
+# All offline sample cases (fast, no API key)
+uv run python -m mindbrew_v2.eval.run_sample_cases
+
+# Verbose progress per case
+uv run python -m mindbrew_v2.eval.run_sample_cases -v
+
+# Live Nebius LLM (requires NEBIUS_API_KEY in .env)
+uv run python -m mindbrew_v2.eval.run_sample_cases --live
+
+# Filter by phase or case id
+uv run python -m mindbrew_v2.eval.run_sample_cases --live --phase intake
+uv run python -m mindbrew_v2.eval.run_sample_cases --live --case sample_silicone_e2e_fba_v1
+uv run python -m mindbrew_v2.eval.run_sample_cases --case sample_reject_intake_v1
 ```
+
+Live-tier sample cases (e.g. `sample_live_wax_ester_client_v1`) are **skipped** unless you pass `--live`.
+
+### pytest integration
+
+```bash
+uv run pytest tests/test_eval_harness.py -v   # offline eval must pass; fixture structure checks
+uv run pytest tests/                          # full unit + golden-path suite
+```
+
+`test_offline_eval_passes` runs all offline cases via `run_eval(tier="offline")` — keep `gold/cases.yaml` green before merging.
+
+### Adding and promoting cases
+
+1. **Draft** — copy a block from `sample_cases.yaml` or an existing case; iterate with `run_sample_cases`.
+2. **Offline regression** — append to `gold/cases.yaml` with `requires_live_api: false`.
+3. **Live benchmark** — run a real session (`BREWMIND_OFFLINE=false`), approve CP1/CP2 artifacts, save JSON under `fixtures/expected/{case_id}/`, add case to `live_cases.yaml` with `gold.brief_ref` / `gold.pathways_ref`.
+4. **Document variants** — add `annotations/{case_id}.md` (acceptable enzyme names, verdict ranges, etc.).
+5. **Validate** — `uv run python -m mindbrew_v2.eval.run_eval --tier live --live`.
+
+Assertion types (`field_contains`, `gold_brief_fields`, `fba_full_pipeline`, `report_has_sections`, …) are documented in [`mindbrew_v2/eval/schema.yaml`](mindbrew_v2/eval/schema.yaml).
+
+Live templates in `live_cases.yaml` (`live_wax_ester_template_v1`, `live_microbiome_template_v1`, `live_ambiguous_template_v1`) include starter gold fixtures — replace after reviewing a real session (see matching files in `eval/annotations/`).
 
 ---
 
@@ -451,7 +596,7 @@ Add a scenario YAML under `vendor/FBA_Analysis/scenarios/` and reference it in t
 
 ### Add eval cases
 
-Copy a case block in `mindbrew_v2/eval/gold/cases.yaml`, update `id`, `input`, and `assertions`. Fixture JSON lives in `mindbrew_v2/eval/fixtures/`.
+See [Evaluation harness](#evaluation-harness) for the full workflow. Short version: draft in `sample_cases.yaml` → promote to `cases.yaml` or `live_cases.yaml` → add fixtures under `eval/fixtures/` → optional `annotations/{case_id}.md` → validate with `run_eval` or `run_sample_cases`.
 
 ### Update FBA_Analysis vendor
 

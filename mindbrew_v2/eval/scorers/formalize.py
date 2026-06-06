@@ -15,6 +15,13 @@ from mindbrew_v2.phases.intake import run_intake
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
 
+def _load_pathway_candidates(case: EvalCase) -> list[PathwayCandidate]:
+    pathways_ref = case.input.get("pathways_ref", "pathways/ticket1_candidates.json")
+    raw = json.loads((FIXTURES / pathways_ref).read_text())
+    items = raw if isinstance(raw, list) else raw.get("candidates", [])
+    return [PathwayCandidate.model_validate(c) for c in items]
+
+
 def score_formalize(case: EvalCase) -> EvalResult:
     failures = []
 
@@ -37,14 +44,15 @@ def score_formalize(case: EvalCase) -> EvalResult:
             sel = provisional_validation_mode(brief)
             if sel.validation_mode.value not in assertion.get("values", []):
                 failures.append(f"validation_mode: {sel.validation_mode}")
-        elif atype == "payload_valid":
-            pathways_ref = case.input.get("pathways_ref", "pathways/ticket1_candidates.json")
-            cands = [
-                PathwayCandidate.model_validate(c)
-                for c in json.loads((FIXTURES / pathways_ref).read_text())
-            ]
+        elif atype in ("payload_valid", "formalize_no_payloads"):
+            cands = _load_pathway_candidates(case)
             result = formalize_pathways(brief, cands)
-            if not result.payloads:
+            if atype == "payload_valid" and not result.payloads:
                 failures.append(f"no payloads; skipped={result.skipped}")
+            if atype == "formalize_no_payloads":
+                if result.payloads:
+                    failures.append(f"expected no payloads, got {len(result.payloads)}")
+                if not result.skipped:
+                    failures.append("expected skipped pathways, got none")
 
     return EvalResult(case.id, case.phase, len(failures) == 0, failures, case.weight)

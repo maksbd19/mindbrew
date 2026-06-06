@@ -12,7 +12,9 @@ class EvalCase:
     phase: str
     ticket: str
     description: str = ""
+    tier: str = "offline"
     input: dict[str, Any] = field(default_factory=dict)
+    gold: dict[str, Any] = field(default_factory=dict)
     expected: str = ""
     assertions: list[dict[str, Any]] = field(default_factory=list)
     requires_live_api: bool = False

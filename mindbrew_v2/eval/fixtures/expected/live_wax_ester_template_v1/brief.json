@@ -1,0 +1,12 @@
+{
+  "ticket_id": "live_wax_ester_template_v1",
+  "raw_brief": "Anonymized silicone-replacement brief for premium haircare from plant oil fermentation.",
+  "organism": ["Yarrowia lipolytica"],
+  "feedstock": {"name": "plant oil", "class": "plant_oil"},
+  "target": {"name": "fermentation-derived lipid", "class": "wax_ester"},
+  "target_function": "silicone replacement, frizz control, smoothness, dimethicone-like",
+  "constraints": ["natural", "sustainably sourced"],
+  "tasks": ["pathway identification", "production outline"],
+  "gatekeeper_verdict": "PROCEED",
+  "selected_gem_id": null
+}

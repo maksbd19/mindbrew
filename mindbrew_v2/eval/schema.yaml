@@ -1,25 +1,90 @@
 # Eval case schema documentation
-# See gold/cases.yaml for examples
+# Offline cases: mindbrew_v2/eval/gold/cases.yaml
+# Live cases: mindbrew_v2/eval/gold/live_cases.yaml
 
 case_fields:
   id: unique case identifier
   phase: intake | pathways | formalize | fba | e2e
-  ticket: ticket1 | ticket2 | ticket3 | synthetic
+  tier: offline | live (default offline for cases.yaml, live for live_cases.yaml)
+  ticket: ticket id or client label (ticket1, ticket2, ticket3, synthetic, client_a, ...)
   description: human-readable summary
-  input: raw_brief, brief_ref, or score_pathway_payload_ref
-  expected: optional ground truth summary
+  input:
+    raw_brief: plain-text R&D brief
+    brief_ref: fixture path under eval/fixtures/briefs/
+    pathways_ref: fixture path under eval/fixtures/pathways/
+    score_pathway_payload_ref: fixture path under eval/fixtures/payloads/
+  gold:
+    brief_ref: expert-reviewed CP1 artifact under eval/fixtures/expected/{case_id}/brief.json
+    pathways_ref: approved CP2 candidates under eval/fixtures/expected/{case_id}/pathways.json
+    fba_verdict_ref: optional expected/.../fba_verdict.json
+    report_sections_ref: optional expected/.../report_sections.json
+  expected: optional free-text ground truth summary for reviewers
   assertions: list of machine-checkable rules
-  requires_live_api: bool
-  weight: float
+  requires_live_api: bool — true for live tier; skipped unless run_eval --live
+  weight: float — used in weighted scorecard
+
+annotation_workflow:
+  1: Run a live session with BREWMIND_OFFLINE=false and review CP1–CP5
+  2: Export approved artifacts to eval/fixtures/expected/{case_id}/
+  3: Add or update a case in live_cases.yaml with gold refs and assertions
+  4: Optionally add eval/annotations/{case_id}.md with acceptable variants
+  5: Validate with `BREWMIND_OFFLINE=false uv run python -m mindbrew_v2.eval.run_eval --tier live --live`
 
 assertion_types:
-  - field_contains
-  - field_in
-  - gatekeeper_verdict_in
-  - any_candidate_has_enzymes
-  - min_citation_count
-  - fba_status
-  - fba_verdict_in
-  - report_has_sections
-  - validation_mode_in
-  - gem_id_equals
+  field_contains:
+    fields: field, values[]
+    phases: [intake]
+  field_in:
+    fields: field, values[]
+    phases: [intake]
+  gatekeeper_verdict_in:
+    fields: values[] (PROCEED | CLARIFY | REJECT)
+    phases: [intake]
+  gold_brief_fields:
+    fields: optional fields[] — defaults organism, feedstock, target, gatekeeper_verdict
+    requires: gold.brief_ref or assertion.brief_ref
+    phases: [intake, e2e]
+  any_candidate_has_enzymes:
+    fields: values[] — enzyme substrings
+    phases: [pathways]
+  candidate_text_contains:
+    fields: values[] — any needle in candidate name/description/enzymes
+    phases: [pathways]
+  candidate_count_min:
+    fields: value (int)
+    phases: [pathways, e2e]
+  min_citation_count:
+    fields: value (int)
+    phases: [pathways]
+  gold_pathway_enzymes:
+    fields: optional values[] — if omitted, enzymes extracted from gold pathways_ref
+    requires: gold.pathways_ref or assertion.pathways_ref or values
+    phases: [pathways, e2e]
+  gem_id_equals:
+    fields: value
+    phases: [formalize]
+  payload_valid:
+    requires: input.brief_ref + input.pathways_ref
+    phases: [formalize]
+  formalize_no_payloads:
+    requires: input.brief_ref + input.pathways_ref with unmapped enzymes
+    phases: [formalize]
+  fba_status:
+    fields: value (e.g. optimal)
+    phases: [fba]
+  fba_verdict_in:
+    fields: values[] (pass | marginal | fail)
+    phases: [fba, e2e]
+  fba_full_pipeline:
+    fields: verdict_values[], optional status (default optimal)
+    phases: [e2e]
+  validation_mode_in:
+    fields: values[] (fba | literature)
+    phases: [e2e, formalize]
+  pathways_not_empty:
+    phases: [e2e]
+  lit_plan_has_genes:
+    phases: [e2e]
+  report_has_sections:
+    fields: values[] — section heading substrings
+    phases: [e2e]

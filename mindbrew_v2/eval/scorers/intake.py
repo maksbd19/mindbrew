@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from mindbrew_v2.eval.scorers.base import EvalCase, EvalResult
+from mindbrew_v2.eval.scorers.gold_assertions import check_gold_brief_fields, resolve_gold_ref
 from mindbrew_v2.models import Ticket
 from mindbrew_v2.phases.intake import run_intake
 
@@ -34,5 +35,15 @@ def score_intake(case: EvalCase) -> EvalResult:
         elif atype == "gatekeeper_verdict_in":
             if brief.gatekeeper_verdict not in assertion.get("values", []):
                 failures.append(f"gatekeeper: {brief.gatekeeper_verdict}")
+        elif atype == "gold_brief_fields":
+            brief_ref = resolve_gold_ref(case.gold, assertion, "brief_ref")
+            if not brief_ref:
+                failures.append("gold_brief_fields: missing brief_ref")
+            else:
+                fields = tuple(assertion["fields"]) if assertion.get("fields") else None
+                if fields:
+                    failures.extend(check_gold_brief_fields(brief, brief_ref, fields=fields))
+                else:
+                    failures.extend(check_gold_brief_fields(brief, brief_ref))
 
     return EvalResult(case.id, case.phase, len(failures) == 0, failures, case.weight)

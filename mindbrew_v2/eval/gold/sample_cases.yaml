@@ -1,0 +1,233 @@
+# Reference sample cases — NOT loaded by run_eval by default.
+# Copy a block into gold/cases.yaml (offline) or gold/live_cases.yaml (live),
+# then add fixtures under eval/fixtures/ as needed.
+#
+# Run all samples and print a table:
+#   uv run python -m mindbrew_v2.eval.run_sample_cases
+# Live Nebius LLM (requires NEBIUS_API_KEY in .env):
+#   uv run python -m mindbrew_v2.eval.run_sample_cases --live
+#   uv run python -m mindbrew_v2.eval.run_sample_cases --live -v --phase e2e
+
+cases:
+  # ── Sample 1: Intake — explicit organism + feedstock (FBA-eligible brief) ──
+  - id: sample_fatty_alcohol_intake_v1
+    tier: offline
+    phase: intake
+    ticket: sample_emollient
+    description: |
+      Fatty-alcohol emollient brief with explicit Y. lipolytica + sunflower oil.
+      Expect PROCEED and lipid/plant_oil extraction.
+    input:
+      raw_brief: |
+        Our R&D team wants a fermentation-derived C16–C18 fatty alcohol emollient
+        for rinse-off hair conditioners. Host: Yarrowia lipolytica. Feedstock:
+        refined sunflower oil. Target: terminal fatty alcohol with dimethicone-like
+        slip but fully bio-based. Outline pathway options and production constraints.
+    assertions:
+      - type: gatekeeper_verdict_in
+        values: [PROCEED]
+      - type: field_contains
+        field: target_function
+        values: [fatty alcohol, emollient, dimethicone]
+      - type: field_in
+        field: feedstock
+        values: [plant_oil, vegetable_oil, triglyceride_oil, oleate]
+    requires_live_api: false
+    weight: 1.0
+
+  # ── Sample 2: Pathways — omega-3 lipid (checks citations + enzyme route) ──
+  - id: sample_omega3_pathways_v1
+    tier: offline
+    phase: pathways
+    ticket: sample_nutraceutical
+    description: |
+      EPA/DHA-style omega-3 brief — pathways should cite literature and name
+      desaturase/elongase-class enzymes (offline stub may need keyword extension).
+    input:
+      raw_brief: |
+        We need a microbial route to long-chain omega-3 fatty acids (EPA/DHA class)
+        for a cosmetic nutraceutical ingredient. Prefer a yeast host and glucose or
+        plant-oil feedstock. Literature-backed pathway required.
+    assertions:
+      - type: candidate_count_min
+        value: 1
+      - type: min_citation_count
+        value: 1
+      - type: any_candidate_has_enzymes
+        values: [far]
+    requires_live_api: false
+    weight: 1.0
+
+  # ── Sample 3: Formalize — fixture-driven payload build (no raw brief) ──
+  - id: sample_formalize_fixture_v1
+    tier: offline
+    phase: formalize
+    ticket: ticket1
+    description: |
+      Uses frozen brief + pathway fixtures instead of raw_brief.
+      Validates FAR+WS formalization produces score payloads.
+    input:
+      brief_ref: briefs/ticket1_parsed.json
+      pathways_ref: pathways/ticket1_candidates.json
+    assertions:
+      - type: gem_id_equals
+        value: iyli647
+      - type: payload_valid
+    requires_live_api: false
+    weight: 1.5
+
+  # ── Sample 4: E2E — probiotic metabolite (literature branch) ──
+  - id: sample_probiotic_e2e_v1
+    tier: offline
+    phase: e2e
+    ticket: sample_probiotic
+    description: |
+      Scalp/skin probiotic metabolite brief without registry GEM match.
+      Full e2e: intake → pathways → literature plan genes.
+    input:
+      raw_brief: |
+        We're exploring a fermentation-derived postbiotic metabolite for scalp
+        microbiome balance and anti-dandruff claims. No specific host mandated —
+        prioritize literature precedent and gene-level engineering plan.
+    assertions:
+      - type: validation_mode_in
+        values: [literature]
+      - type: pathways_not_empty
+      - type: lit_plan_has_genes
+      - type: report_has_sections
+        values: [project summary, genetic engineering plan]
+    requires_live_api: false
+    weight: 2.0
+
+  # ── Sample 5: Live tier — gold-label benchmark (copy to live_cases.yaml) ──
+  - id: sample_live_wax_ester_client_v1
+    tier: live
+    phase: e2e
+    ticket: client_sample
+    description: |
+      LIVE SAMPLE — anonymized client brief with expert-reviewed gold fixtures.
+      1) Run live session and approve CP1/CP2 artifacts.
+      2) Save to fixtures/expected/sample_live_wax_ester_client_v1/.
+      3) Set requires_live_api: true and run with --tier live --live.
+    expected: |
+      FBA path via Y. lipolytica + plant oil → wax ester (FAR+WS).
+      FBA verdict pass or marginal; report includes engineering + validation sections.
+    input:
+      raw_brief: |
+        [ANONYMIZED] Premium haircare brand seeking natural silicone replacement
+        from plant oil fermentation. Target: wax ester with frizz control and
+        smoothness comparable to dimethicone. Host preference: Yarrowia lipolytica.
+        Need CRO-ready pathway design and flux validation where possible.
+    gold:
+      brief_ref: expected/sample_live_wax_ester_client_v1/brief.json
+      pathways_ref: expected/sample_live_wax_ester_client_v1/pathways.json
+    assertions:
+      - type: gold_brief_fields
+        fields: [gatekeeper_verdict, organism, feedstock, target]
+      - type: gold_pathway_enzymes
+        values: [far, ws]
+      - type: validation_mode_in
+        values: [fba]
+      - type: fba_full_pipeline
+        verdict_values: [pass, marginal]
+      - type: report_has_sections
+        values: [project summary, genetic engineering plan, validation plan, fba validation]
+    requires_live_api: true
+    weight: 5.0
+
+  # ── Sample 6: Intake — CLARIFY on underspecified brief ──
+  - id: sample_clarify_intake_v1
+    tier: offline
+    phase: intake
+    ticket: synthetic
+    description: |
+      Cosmetic brief mentions fermentation but omits host, feedstock, and target molecule.
+      Gatekeeper should ask clarifying questions before proceeding.
+    input:
+      raw_brief: |
+        We want a natural haircare active made by fermentation for our next product launch.
+        Please propose a biomanufacturing route and rough COGS estimate.
+    assertions:
+      - type: gatekeeper_verdict_in
+        values: [CLARIFY]
+    requires_live_api: false
+    weight: 1.0
+
+  # ── Sample 7: Intake — REJECT non-biocatalysis request ──
+  - id: sample_reject_intake_v1
+    tier: offline
+    phase: intake
+    ticket: synthetic
+    description: |
+      Software debugging request outside Brewmind scope — gatekeeper REJECT or CLARIFY.
+    input:
+      raw_brief: |
+        Help me debug this Python script for web scraping product reviews.
+        The BeautifulSoup parser keeps returning empty results.
+    assertions:
+      - type: gatekeeper_verdict_in
+        values: [REJECT, CLARIFY]
+    requires_live_api: false
+    weight: 1.0
+
+  # ── Sample 8: Pathways — cuticle / ceramide barrier lipid ──
+  - id: sample_cuticle_pathways_v1
+    tier: offline
+    phase: pathways
+    ticket: ticket3
+    description: |
+      Cuticle repair brief should return ceramide/barrier lipid pathway candidates
+      with at least one literature citation.
+    input:
+      raw_brief: |
+        Cuticle repair treatment for damaged hair — rebuild the barrier lipid layer
+        and improve moisture retention using a plant-oil fermentation route.
+    assertions:
+      - type: candidate_count_min
+        value: 1
+      - type: candidate_text_contains
+        values: [ceramide, barrier, cuticle]
+      - type: min_citation_count
+        value: 1
+    requires_live_api: false
+    weight: 1.0
+
+  # ── Sample 9: FBA — knockout sensitivity (marginal/fail without KOs) ──
+  - id: sample_fba_no_knockouts_v1
+    tier: offline
+    phase: fba
+    ticket: ticket1
+    description: |
+      Fixture-driven FBA case: wax ester payload without β-oxidation knockouts
+      should still solve but verdict is marginal or fail.
+    input:
+      score_pathway_payload_ref: payloads/wax_ester_no_ko.json
+    assertions:
+      - type: fba_status
+        value: optimal
+      - type: fba_verdict_in
+        values: [marginal, fail]
+    requires_live_api: false
+    weight: 1.5
+
+  # ── Sample 10: E2E — silicone replacement FBA golden path ──
+  - id: sample_silicone_e2e_fba_v1
+    tier: offline
+    phase: e2e
+    ticket: ticket1
+    description: |
+      Full FBA pipeline for wax-ester silicone replacement: intake → pathways →
+      formalize → FBA ranking → report with engineering and flux sections.
+    input:
+      raw_brief: |
+        Natural silicone replacement from plant oil fermentation in Yarrowia lipolytica
+        for premium haircare. Smoothness and frizz control like dimethicone.
+    assertions:
+      - type: validation_mode_in
+        values: [fba]
+      - type: fba_full_pipeline
+        verdict_values: [pass, marginal]
+      - type: report_has_sections
+        values: [project summary, genetic engineering plan, validation plan, fba validation]
+    requires_live_api: false
+    weight: 3.0

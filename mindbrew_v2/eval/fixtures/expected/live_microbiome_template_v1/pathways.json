@@ -1,0 +1,10 @@
+[
+  {
+    "id": "pw_postbiotic_lipid",
+    "name": "Fermentation-derived scalp postbiotic",
+    "enzymes": ["lipopeptide synthase"],
+    "reaction_steps": [
+      {"enzyme_name": "lipopeptide synthase", "gene_names": ["srfA"]}
+    ]
+  }
+]

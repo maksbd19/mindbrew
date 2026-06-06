@@ -178,3 +178,116 @@ cases:
         values: [project summary, genetic engineering plan, validation plan]
     requires_live_api: false
     weight: 3.0
+
+  - id: clarify_vague_brief_v1
+    phase: intake
+    ticket: synthetic
+    tier: offline
+    description: Vague fermentation brief triggers CLARIFY gatekeeper
+    input:
+      raw_brief: |
+        We need a natural ingredient for haircare made by fermentation.
+        Can you design a production route?
+    assertions:
+      - type: gatekeeper_verdict_in
+        values: [CLARIFY]
+    requires_live_api: false
+    weight: 1.0
+
+  - id: ticket2_pathway_microbiome_v1
+    phase: pathways
+    ticket: ticket2
+    tier: offline
+    description: Microbiome brief yields scalp/postbiotic pathway candidates
+    input:
+      raw_brief: |
+        Scalp microbiome postbiotic ingredient for dandruff via fermentation.
+    assertions:
+      - type: candidate_count_min
+        value: 1
+      - type: candidate_text_contains
+        values: [microbiome, scalp, postbiotic, lipopeptide]
+    requires_live_api: false
+    weight: 1.0
+
+  - id: ticket3_pathway_barrier_v1
+    phase: pathways
+    ticket: ticket3
+    tier: offline
+    description: Cuticle brief yields ceramide/barrier lipid candidates
+    input:
+      raw_brief: |
+        Cuticle repair treatment with barrier lipid from plant oil fermentation.
+    assertions:
+      - type: candidate_text_contains
+        values: [ceramide, barrier, cuticle]
+      - type: min_citation_count
+        value: 1
+    requires_live_api: false
+    weight: 1.0
+
+  - id: formalize_skip_unknown_enzyme_v1
+    phase: formalize
+    ticket: ticket1
+    tier: offline
+    description: Unmapped enzyme pathway produces no payloads
+    input:
+      brief_ref: briefs/ticket1_formalize_skip.json
+      pathways_ref: pathways/unknown_enzyme_candidates.json
+    assertions:
+      - type: formalize_no_payloads
+    requires_live_api: false
+    weight: 1.0
+
+  - id: ticket3_e2e_literature_v1
+    phase: e2e
+    ticket: ticket3
+    tier: offline
+    description: Cuticle brief routes to literature branch with gene suggestions
+    input:
+      raw_brief: |
+        Cuticle repair treatment for damaged hair with barrier lipid from plant oil.
+        Rebuild moisture retention with a natural skin-identical lipid.
+    assertions:
+      - type: validation_mode_in
+        values: [literature]
+      - type: pathways_not_empty
+      - type: lit_plan_has_genes
+    requires_live_api: false
+    weight: 2.0
+
+  - id: ticket1_e2e_fba_full_v1
+    phase: e2e
+    ticket: ticket1
+    tier: offline
+    description: Ticket 1 FBA full pipeline with formalize, score, and report
+    input:
+      raw_brief: |
+        Natural silicone replacement from plant oil fermentation in Yarrowia lipolytica.
+        Smoothness and frizz control like dimethicone for premium haircare.
+    assertions:
+      - type: validation_mode_in
+        values: [fba]
+      - type: fba_full_pipeline
+        verdict_values: [pass, marginal]
+      - type: report_has_sections
+        values: [project summary, genetic engineering plan, validation plan, fba validation]
+    requires_live_api: false
+    weight: 3.0
+
+  - id: ticket2_e2e_literature_v1
+    phase: e2e
+    ticket: ticket2
+    tier: offline
+    description: Ticket 2 literature branch with pathways and literature plan
+    input:
+      raw_brief: |
+        Scalp microbiome postbiotic ingredient for dandruff and barrier support via fermentation.
+    assertions:
+      - type: validation_mode_in
+        values: [literature]
+      - type: candidate_count_min
+        value: 1
+      - type: lit_plan_has_genes
+    requires_live_api: false
+    weight: 2.0

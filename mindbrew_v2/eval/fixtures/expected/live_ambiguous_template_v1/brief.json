@@ -1,0 +1,12 @@
+{
+  "ticket_id": "live_ambiguous_template_v1",
+  "raw_brief": "Anonymized vague haircare fermentation brief missing organism and feedstock.",
+  "organism": [],
+  "feedstock": {"name": "", "class": ""},
+  "target": {"name": "fermentation-derived ingredient", "class": ""},
+  "target_function": "natural haircare ingredient",
+  "constraints": ["natural"],
+  "tasks": ["pathway identification"],
+  "gatekeeper_verdict": "CLARIFY",
+  "selected_gem_id": null
+}

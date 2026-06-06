@@ -38,6 +38,31 @@ def _intake_result(text: str) -> dict[str, Any]:
             "clarifying_questions": [],
         }
 
+    if (
+        "fermentation" in text
+        and "plant oil" not in text
+        and "lipolytica" not in text
+        and "yeast" not in text
+        and "microbiome" not in text
+        and "scalp" not in text
+        and "cuticle" not in text
+        and "ceramide" not in text
+    ):
+        return {
+            "gatekeeper_verdict": "CLARIFY",
+            "organism": [],
+            "feedstock": {"name": "", "class": ""},
+            "target": {"name": "fermentation-derived ingredient", "class": ""},
+            "target_function": "natural haircare ingredient",
+            "constraints": ["natural"],
+            "tasks": ["pathway identification"],
+            "clarifying_questions": [
+                "Which host organism should we engineer?",
+                "What feedstock or carbon source is preferred?",
+                "What is the target molecule or functional property?",
+            ],
+        }
+
     organism = ["Yarrowia lipolytica"]
     feedstock_class = "plant_oil"
     target_class = "wax_ester"
@@ -49,6 +74,7 @@ def _intake_result(text: str) -> dict[str, Any]:
         target_class = "postbiotic"
         target_function = "scalp microbiome balance, dandruff, barrier support"
     elif "cuticle" in text or "ceramide" in text or "barrier lipid" in text:
+        organism = []
         feedstock_class = "plant_oil"
         target_class = "ceramide_like_lipid"
         target_function = "cuticle repair, moisture retention, barrier lipid"
@@ -66,6 +92,52 @@ def _intake_result(text: str) -> dict[str, Any]:
 
 
 def _pathway_candidates(text: str) -> list[dict[str, Any]]:
+    if "cuticle" in text or "ceramide" in text or "barrier lipid" in text:
+        return [
+            {
+                "id": "pw_ceramide_synthesis",
+                "name": "Ceramide-like barrier lipid route",
+                "description": "Plant-oil derived ceramide analog for cuticle repair and moisture barrier",
+                "reaction_steps": [
+                    {
+                        "step_number": 1,
+                        "description": "Sphingoid base + fatty acyl-CoA → ceramide analog",
+                        "enzyme_name": "ceramide synthase",
+                        "gene_names": ["CERS"],
+                        "heterologous": True,
+                    }
+                ],
+                "enzymes": ["ceramide synthase", "CERS"],
+                "citations": [{"doi": "10.1016/j.bio.2020.01.001", "title": "Ceramide production in yeast"}],
+                "confidence": "partial",
+                "confidence_rationale": "Ceramide pathway literature exists; cuticle-specific validation limited.",
+                "literature_provenance": ["literature_search"],
+            }
+        ]
+
+    if "microbiome" in text or "dandruff" in text or "scalp" in text:
+        return [
+            {
+                "id": "pw_postbiotic_lipid",
+                "name": "Fermentation-derived scalp postbiotic",
+                "description": "Microbial metabolites supporting scalp barrier and microbiome balance",
+                "reaction_steps": [
+                    {
+                        "step_number": 1,
+                        "description": "Secreted lipopeptide / postbiotic metabolite",
+                        "enzyme_name": "lipopeptide synthase",
+                        "gene_names": ["srfA"],
+                        "heterologous": False,
+                    }
+                ],
+                "enzymes": ["lipopeptide synthase"],
+                "citations": [{"pmid": "98765432", "title": "Scalp microbiome postbiotics"}],
+                "confidence": "partial",
+                "confidence_rationale": "Microbiome modulation literature; host GEM not registered.",
+                "literature_provenance": ["literature_search"],
+            }
+        ]
+
     return [
         {
             "id": "pw_wax_ester_far_ws",

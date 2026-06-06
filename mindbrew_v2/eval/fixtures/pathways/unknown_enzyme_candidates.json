@@ -1,0 +1,21 @@
+[
+  {
+    "id": "pw_unknown_enzyme",
+    "name": "Novel synthase route",
+    "description": "Hypothetical pathway using unmapped enzyme",
+    "reaction_steps": [
+      {
+        "step_number": 1,
+        "description": "Unknown transformation",
+        "enzyme_name": "XYZ123NOMAP",
+        "gene_names": ["XYZ123"],
+        "heterologous": true
+      }
+    ],
+    "enzymes": ["XYZ123NOMAP"],
+    "citations": [],
+    "confidence": "inferred",
+    "confidence_rationale": "Placeholder for unmapped enzyme formalize test.",
+    "literature_provenance": ["literature_search"]
+  }
+]

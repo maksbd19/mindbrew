@@ -1,0 +1,12 @@
+{
+  "ticket_id": "sample_live_wax_ester_client_v1",
+  "raw_brief": "[ANONYMIZED] Premium haircare wax ester from plant oil in Y. lipolytica.",
+  "organism": ["Yarrowia lipolytica"],
+  "feedstock": {"name": "plant oil", "class": "plant_oil"},
+  "target": {"name": "wax ester", "class": "wax_ester"},
+  "target_function": "silicone replacement, frizz control, smoothness",
+  "constraints": ["natural", "premium haircare"],
+  "tasks": ["pathway identification", "flux validation", "CRO blueprint"],
+  "gatekeeper_verdict": "PROCEED",
+  "selected_gem_id": null
+}
