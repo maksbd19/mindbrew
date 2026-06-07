@@ -1,7 +1,7 @@
 {
   "pathway_id": "pw_wax_ester_far_ws",
-  "model_ref": "vendor/FBA_Analysis/iYLI647.xml",
-  "scenario": "vendor/FBA_Analysis/scenarios/wax_ester_oleate_n_limited.yaml",
+  "model_ref": "data/models/iYLI647.xml",
+  "scenario": "data/scenarios/wax_ester_oleate_n_limited.yaml",
   "carbon_source_rxn": "EX_ocdcea_LPAREN_e_RPAREN_",
   "candidate_reactions": [
     {

@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: brewmind
+      POSTGRES_PASSWORD: brewmind
+      POSTGRES_DB: brewmind
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brewmind -d brewmind"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://brewmind:brewmind@postgres:5432/brewmind
+      BREWMIND_OFFLINE: "false"
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      GEM_MODEL_CACHE_DIR: data/gem_models
+    volumes:
+      - gem_cache:/app/data/gem_models
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        API_URL: http://api:8000
+    environment:
+      API_URL: http://api:8000
+      NEXT_PUBLIC_API_URL: /api
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  gem_cache:

@@ -1,11 +1,11 @@
-"""FBA_Analysis client — find_ids + score_pathway via direct import."""
+"""FBA client — find_ids + score_pathway via integrated mindbrew_v2.fba package."""
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import Any
 
+from mindbrew_v2.fba.find_ids import build_report
+from mindbrew_v2.fba.scoring import score_pathway as _score_pathway
 from mindbrew_v2.paths import display_path
 from mindbrew_v2.models import (
     Bottleneck,
@@ -18,30 +18,6 @@ from mindbrew_v2.settings import is_offline
 from mindbrew_v2.tools.citation_resolver import resolve_citations
 from mindbrew_v2.tools.confidence import build_calibration_rationale, build_verdict_rationale
 from mindbrew_v2.tools.fba_calculation_steps import build_calculation_steps
-
-VENDOR_ROOT = Path(__file__).resolve().parents[2] / "vendor" / "FBA_Analysis"
-
-
-def _is_vendor_stub() -> bool:
-    find_ids_path = VENDOR_ROOT / "find_ids.py"
-    if not find_ids_path.exists():
-        return True
-    return "Offline find_ids stub" in find_ids_path.read_text()
-
-
-def _fba_imports() -> tuple[Any, Any]:
-    if _is_vendor_stub():
-        raise ImportError(
-            "vendor/FBA_Analysis contains offline stubs. "
-            "Run: git submodule update --init vendor/FBA_Analysis"
-        )
-    vendor = str(VENDOR_ROOT)
-    if vendor not in sys.path:
-        sys.path.insert(0, vendor)
-    from find_ids import build_report
-    from fba_tool import score_pathway as sp
-
-    return build_report, sp
 
 
 def run_find_ids(model_ref: str, extra_terms: list[str] | None = None) -> dict[str, Any]:
@@ -60,7 +36,6 @@ def run_find_ids(model_ref: str, extra_terms: list[str] | None = None) -> dict[s
 
     with start_span("tool.call", {"tool_id": tool_id, "model_ref": model_ref}):
         try:
-            build_report, _ = _fba_imports()
             report = build_report(model_ref, extra_terms or [])
             duration_ms = int((time.perf_counter() - started) * 1000)
             if report.get("status") == "ok":
@@ -71,11 +46,6 @@ def run_find_ids(model_ref: str, extra_terms: list[str] | None = None) -> dict[s
             tool_end(tool_id, label, duration_ms=duration_ms, status="error")
             log(f"FBA find_ids preflight failed: {message}", level="error")
             raise RuntimeError(f"FBA find_ids preflight failed for {display_path(model_ref)}: {message}")
-        except ImportError as exc:
-            duration_ms = int((time.perf_counter() - started) * 1000)
-            tool_end(tool_id, label, duration_ms=duration_ms, status="error")
-            log(str(exc), level="error")
-            raise
         except Exception as exc:
             duration_ms = int((time.perf_counter() - started) * 1000)
             tool_end(tool_id, label, duration_ms=duration_ms, status="error")
@@ -107,8 +77,7 @@ def run_biomass_validation(gem: GemProfile) -> dict[str, Any]:
 
     with start_span("tool.call", {"tool_id": tool_id, "gem_id": gem.gem_id}):
         try:
-            _, sp = _fba_imports()
-            data = sp(
+            data = _score_pathway(
                 gem.model_ref,
                 scenario=gem.biomass_validation_scenario,
                 objective="biomass",
@@ -143,8 +112,7 @@ def score_pathway(payload: ScorePathwayPayload) -> FBAValidationResult:
 
     with start_span("tool.call", {"tool_id": tool_id, "pathway_id": payload.pathway_id}):
         try:
-            _, sp = _fba_imports()
-            data = sp(**_payload_to_fba_dict(payload))
+            data = _score_pathway(**_payload_to_fba_dict(payload))
             parsed = _parse_fba_result(payload.pathway_id, data)
             duration_ms = int((time.perf_counter() - started) * 1000)
             tool_end(tool_id, label, duration_ms=duration_ms, status="ok")
@@ -153,11 +121,6 @@ def score_pathway(payload: ScorePathwayPayload) -> FBAValidationResult:
                 f"finished in {duration_ms / 1000:.1f}s"
             )
             return parsed
-        except ImportError as exc:
-            duration_ms = int((time.perf_counter() - started) * 1000)
-            tool_end(tool_id, label, duration_ms=duration_ms, status="error")
-            log(str(exc), level="error")
-            raise
         except Exception as exc:
             duration_ms = int((time.perf_counter() - started) * 1000)
             tool_end(tool_id, label, duration_ms=duration_ms, status="error")

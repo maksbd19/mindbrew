@@ -27,8 +27,9 @@ from mindbrew_v2.phases.fba_payloads import (
 from mindbrew_v2.phases.formalize import formalize_pathways
 from mindbrew_v2.tools.fba_client import _offline_find_ids, run_find_ids
 
-VENDOR_ROOT = Path(__file__).resolve().parents[1] / "vendor" / "FBA_Analysis"
-MODEL_REF = str(VENDOR_ROOT / "iYLI647.xml")
+DATA_ROOT = Path(__file__).resolve().parents[1] / "data"
+MODEL_REF = str(DATA_ROOT / "models" / "iYLI647.xml")
+SCENARIO_REF = str(DATA_ROOT / "scenarios" / "wax_ester_oleate_n_limited.yaml")
 
 
 def _wax_candidate() -> PathwayCandidate:
@@ -60,7 +61,7 @@ def _gem_profile() -> GemProfile:
     return GemProfile(
         gem_id="iyli647",
         model_ref=MODEL_REF,
-        scenario=str(VENDOR_ROOT / "scenarios/wax_ester_oleate_n_limited.yaml"),
+        scenario=SCENARIO_REF,
         organism="Yarrowia lipolytica",
         feedstock_class="plant_oil",
     )
@@ -131,7 +132,7 @@ def test_formalize_skips_non_wax_pathway(tmp_path, monkeypatch):
     )
     cand = PathwayCandidate(id="pw_other", name="Unknown pathway", enzymes=["XYZ1"])
     result = formalize_pathways(brief, [cand])
-    if VENDOR_ROOT.joinpath("iYLI647.xml").is_file():
+    if Path(MODEL_REF).is_file():
         assert result.gem is not None
     assert result.payloads == []
     assert len(result.skipped) == 1
@@ -143,7 +144,7 @@ def test_run_find_ids_resolves_real_carbon_source(tmp_path, monkeypatch):
     from unittest.mock import patch
 
     if not Path(MODEL_REF).is_file():
-        pytest.skip("vendor iYLI647.xml not present")
+        pytest.skip("data/models/iYLI647.xml not present")
     monkeypatch.setenv("GEM_MODEL_CACHE_DIR", str(tmp_path))
     from mindbrew_v2.settings import get_settings
 

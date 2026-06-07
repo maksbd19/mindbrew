@@ -12,7 +12,7 @@ os.environ.setdefault("BREWMIND_OFFLINE", "true")
 
 from mindbrew_v2.tools.gem_model_cache import ensure_model, get_cache_dir
 
-VENDOR_MODEL = Path(__file__).resolve().parents[1] / "vendor" / "FBA_Analysis" / "iYLI647.xml"
+BUNDLED_MODEL = Path(__file__).resolve().parents[1] / "data" / "models" / "iYLI647.xml"
 
 
 @pytest.fixture
@@ -24,12 +24,12 @@ def cache_dir(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_ensure_model_seeds_from_vendor(cache_dir):
-    if not VENDOR_MODEL.is_file():
-        pytest.skip("vendor iYLI647.xml not present")
+def test_ensure_model_seeds_from_bundled(cache_dir):
+    if not BUNDLED_MODEL.is_file():
+        pytest.skip("data/models/iYLI647.xml not present")
     path, source, error = ensure_model(
         "iyli647",
-        str(VENDOR_MODEL),
+        str(BUNDLED_MODEL),
         model_name="iYLI647",
     )
     assert error is None
@@ -41,10 +41,10 @@ def test_ensure_model_seeds_from_vendor(cache_dir):
 
 
 def test_ensure_model_cache_hit(cache_dir):
-    if not VENDOR_MODEL.is_file():
-        pytest.skip("vendor iYLI647.xml not present")
-    first, _, _ = ensure_model("iyli647", str(VENDOR_MODEL))
-    second, source, error = ensure_model("iyli647", str(VENDOR_MODEL))
+    if not BUNDLED_MODEL.is_file():
+        pytest.skip("data/models/iYLI647.xml not present")
+    first, _, _ = ensure_model("iyli647", str(BUNDLED_MODEL))
+    second, source, error = ensure_model("iyli647", str(BUNDLED_MODEL))
     assert error is None
     assert source == "cache"
     assert first == second

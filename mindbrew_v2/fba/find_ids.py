@@ -22,7 +22,7 @@ import re
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
-from model_loader import (
+from mindbrew_v2.fba.model_loader import (
     IYLI647_BIOMASS_CARBON,
     ensure_sbml_loadable,
     is_sbml_path,

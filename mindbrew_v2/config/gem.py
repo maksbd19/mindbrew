@@ -19,7 +19,17 @@ from mindbrew_v2.tools.gem_model_cache import ensure_model
 
 REGISTRY_PATH = Path(__file__).parent / "gem_registry.yaml"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-FBA_SCENARIOS = PROJECT_ROOT / "vendor" / "FBA_Analysis" / "scenarios"
+SCENARIOS_DIR = PROJECT_ROOT / "data" / "scenarios"
+
+
+def _resolve_scenario_ref(ref: str) -> str:
+    if not ref:
+        return ""
+    if ref.startswith("data/"):
+        return str(PROJECT_ROOT / ref)
+    if Path(ref).is_absolute():
+        return ref
+    return str(SCENARIOS_DIR / ref)
 
 
 @dataclass
@@ -80,18 +90,14 @@ def resolve_scenario_path(entry: GemEntry, feedstock_class: str) -> str:
             break
     if not chosen:
         return ""
-    if chosen.startswith("vendor/"):
-        return str(PROJECT_ROOT / chosen)
-    return str(FBA_SCENARIOS / chosen)
+    return _resolve_scenario_ref(chosen)
 
 
 def resolve_biomass_scenario(entry: GemEntry) -> str:
     name = entry.biomass_validation_scenario
     if not name:
         return ""
-    if name.startswith("vendor/"):
-        return str(PROJECT_ROOT / name)
-    return str(FBA_SCENARIOS / name)
+    return _resolve_scenario_ref(name)
 
 
 def _organism_match(brief: ResearchBrief, entry: GemEntry) -> int:

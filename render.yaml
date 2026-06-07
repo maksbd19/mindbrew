@@ -5,9 +5,8 @@ services:
     name: brewmind-api
     runtime: python
     plan: free
-    buildCommand: |
-      git submodule update --init --recursive vendor/FBA_Analysis
-      pip install -r requirements.txt
+    autoDeployTrigger: off
+    buildCommand: pip install -r requirements.txt
     startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:

@@ -42,7 +42,7 @@ from typing import Any, Dict, List, Optional, Union
 import cobra
 from cobra import Reaction, Metabolite
 
-from model_loader import load_model_robust
+from mindbrew_v2.fba.model_loader import load_model_robust
 
 try:
     import yaml

@@ -58,7 +58,7 @@ packages = ["mindbrew_v2"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
-    "integration: tests that require live FBA deps and vendor model files",
+    "integration: tests that require live FBA deps and bundled model files",
 ]
 
 [tool.ruff]

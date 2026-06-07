@@ -13,7 +13,7 @@ from mindbrew_v2.config.gem import build_gem_profile, load_registry, provisional
 from mindbrew_v2.models import ResearchBrief
 from mindbrew_v2.phases.gem_discovery import discover_gem
 
-VENDOR_MODEL = Path(__file__).resolve().parents[1] / "vendor" / "FBA_Analysis" / "iYLI647.xml"
+BUNDLED_MODEL = Path(__file__).resolve().parents[1] / "data" / "models" / "iYLI647.xml"
 
 
 @pytest.fixture
@@ -45,8 +45,8 @@ def test_resolve_scenario_path():
 
 
 def test_build_gem_profile_uses_cache(cache_dir):
-    if not VENDOR_MODEL.is_file():
-        pytest.skip("vendor iYLI647.xml not present")
+    if not BUNDLED_MODEL.is_file():
+        pytest.skip("data/models/iYLI647.xml not present")
     entry = next(e for e in load_registry() if e.id == "iyli647")
     brief = ResearchBrief(
         ticket_id="t1",

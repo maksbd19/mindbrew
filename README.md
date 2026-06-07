@@ -6,6 +6,8 @@ Brewmind takes plain-language R&D tickets (e.g. cosmetic/biocatalysis briefs), s
 
 The product is **not** a literature summary. The moat is **flux-validated pathway design** before wet lab work.
 
+**New to Brewmind?** If you just want to try the tool, install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and run `./start.sh` — no Python, Node, Postgres, or git submodules required. See [Quick Start (Docker)](#quick-start-docker--recommended).
+
 ---
 
 ## Table of contents
@@ -18,7 +20,10 @@ The product is **not** a literature summary. The moat is **flux-validated pathwa
 - [Data and persistence](#data-and-persistence)
 - [API surface](#api-surface)
 - [Getting started](#getting-started)
-- [Deployment](#deployment)
+  - [Quick Start (Docker)](#quick-start-docker--recommended)
+  - [Manual setup (for developers)](#manual-setup-for-developers)
+- [Local Docker architecture](#local-docker-architecture)
+- [Advanced: Cloud deployment](#advanced-cloud-deployment)
 - [Configuration](#configuration)
 - [Evaluation harness](#evaluation-harness)
 - [Extending the system](#extending-the-system)
@@ -55,9 +60,9 @@ flowchart TB
         litsearch[structured pathway search]
     end
 
-    subgraph fba [Validation — FBA_Analysis]
+    subgraph fba [Validation — mindbrew_v2/fba]
         findids[find_ids.build_report]
-        score[fba_tool.score_pathway]
+        score[score_pathway]
     end
 
     subgraph infra [Infrastructure]
@@ -86,7 +91,7 @@ flowchart TB
 | **API** | FastAPI + SSE | Sessions, graph execution, checkpoint resume |
 | **Agent** | LangGraph + Pydantic | Phase graph, typed artifacts, HITL interrupts |
 | **Literature** | Nebius LLM (structured extraction) | Pathway suggestions, papers, citations |
-| **Validation** | [FBA_Analysis](https://github.com/yanglu12/FBA_Analysis) | COBRApy FBA via direct import; real GEM IDs, bottlenecks, calibration tiers |
+| **Validation** | `mindbrew_v2/fba` (COBRApy) | Flux balance validation; real GEM IDs, bottlenecks, calibration tiers |
 | **LLM** | [Nebius Token Factory](https://docs.tokenfactory.nebius.com/) | OpenAI-compatible API for intake, parsing, literature search |
 | **Store** | PostgreSQL | App sessions + LangGraph checkpoints |
 
@@ -97,7 +102,7 @@ flowchart TB
 ### 1. Two engines, one orchestrator
 
 - **Nebius LLM** handles literature pathway hypothesis generation via structured extraction.
-- **FBA_Analysis** owns flux balance validation (COBRApy, imported directly from `vendor/FBA_Analysis/`).
+- **FBA engine** (`mindbrew_v2/fba/`) owns flux balance validation (COBRApy).
 - **Brewmind** owns intake, formalization (pathway biochemistry → FBA payloads), ranking interpretation, HITL gates, and report assembly.
 
 LangGraph in v2 owns all phase transitions between literature search and FBA.
@@ -108,9 +113,19 @@ The agent **never autonomously advances** past a checkpoint. The bioinformaticia
 
 Checkpoints are implemented with LangGraph `interrupt_before` + `PostgresSaver` keyed by `session_id`.
 
-### 3. GEM registry — not hardcoded models
+### 3. GEM registry and data layout — not hardcoded models
 
 `model_ref` is selected from `mindbrew_v2/config/gem_registry.yaml` based on organism, feedstock class, and product class. MVP ships **iYLI647** (*Y. lipolytica*) as the first enabled entry.
+
+GEM assets live under `data/` (not in the Python package):
+
+| Path | Purpose |
+|------|---------|
+| `data/models/` | Bundled SBML files committed with the repo (e.g. `iYLI647.xml`) |
+| `data/scenarios/` | FBA medium and calibration YAML files |
+| `data/gem_models/` | Runtime cache — copies/downloads written by `ensure_model()` |
+
+On first use, a bundled model is copied from `data/models/` into `data/gem_models/` and referenced from there for FBA runs. New GEMs and scenarios are added by dropping files and updating the registry — no engine code changes required.
 
 When **no GEM matches**, the pipeline does **not** stop — it switches to the **literature pathway branch** (CP3b → report).
 
@@ -124,11 +139,11 @@ All LLM calls go through Nebius Token Factory (OpenAI-compatible). Model selecti
 
 ### 6. Offline mode for dev and CI
 
-Set `BREWMIND_OFFLINE=true` to run with deterministic fixtures — no Nebius or live FBA calls. FBA steps use in-process stubs in `fba_client.py` (not the vendor engine). Used by the eval harness and unit tests.
+Set `BREWMIND_OFFLINE=true` to run with deterministic fixtures — no Nebius or live FBA calls. FBA steps use in-process stubs in `fba_client.py`. Used by the eval harness and unit tests.
 
-### 7. No Docker required for MVP
+### 7. Docker Compose for local deploy
 
-Connect to an **existing local Postgres** via `DATABASE_URL`. Docker Compose is optional for teammates later.
+Use `./start.sh` for a one-click local stack (Postgres + API + web). Manual Python/Node setup remains available for developers.
 
 ### 8. Same-origin API proxy
 
@@ -176,7 +191,7 @@ formalize_pathways(...)              → PathwayCandidate → ScorePathwayPayloa
 score_pathway(payload)               → flux, yield, bottlenecks, calibration
 ```
 
-Formalization lives in [`mindbrew_v2/phases/formalize.py`](mindbrew_v2/phases/formalize.py) and [`mindbrew_v2/phases/fba_payloads.py`](mindbrew_v2/phases/fba_payloads.py). It maps literature pathway enzymes (e.g. FAR + WS for wax ester) onto model-resolved IDs from `find_ids` — e.g. `odecoa_c`, `EX_ocdcea_LPAREN_e_RPAREN_`, peroxisomal `ACOAO8p` knockouts. See [`vendor/FBA_Analysis/FBA_TOOL_CONTRACT.md`](vendor/FBA_Analysis/FBA_TOOL_CONTRACT.md).
+Formalization lives in [`mindbrew_v2/phases/formalize.py`](mindbrew_v2/phases/formalize.py) and [`mindbrew_v2/phases/fba_payloads.py`](mindbrew_v2/phases/fba_payloads.py). It maps literature pathway enzymes (e.g. FAR + WS for wax ester) onto model-resolved IDs from `find_ids` — e.g. `odecoa_c`, `EX_ocdcea_LPAREN_e_RPAREN_`, peroxisomal `ACOAO8p` knockouts. See [`mindbrew_v2/fba/CONTRACT.md`](mindbrew_v2/fba/CONTRACT.md).
 
 ---
 
@@ -205,7 +220,8 @@ brewmind/
 │   │   ├── lamin_client.py           # Lamin/bionty ontologies + public datasets
 │   │   ├── pubmed_search.py          # PubMed E-utilities search
 │   │   ├── crossref_search.py        # Crossref works search
-│   │   └── fba_client.py             # Direct import wrapper for find_ids + fba_tool
+│   │   └── fba_client.py             # Wrapper for mindbrew_v2.fba find_ids + score_pathway
+│   ├── fba/                          # Integrated FBA engine (find_ids, scoring, model_loader)
 │   ├── graph.py              # LangGraph definition
 │   ├── models.py             # Pydantic state models
 │   ├── export/
@@ -239,8 +255,14 @@ brewmind/
 │   │   └── sessions/[id]/    # Step wizard
 │   ├── components/           # StepSidebar, StreamLog, ArtifactView, ReviseDialog
 │   └── lib/api.ts
-├── vendor/FBA_Analysis/      # FBA engine from yanglu12/FBA_Analysis (git submodule)
-├── scripts/                  # deploy-render.sh, run-migrations.sh, poc-smoke-test.sh, …
+├── data/
+│   ├── models/               # Bundled SBML genome-scale models (e.g. iYLI647.xml)
+│   ├── scenarios/            # FBA medium/calibration YAML files
+│   └── gem_models/           # Runtime SBML cache (GEM_MODEL_CACHE_DIR)
+├── scripts/                  # start.sh, run-migrations.sh, poc-smoke-test.sh, …
+├── docker-compose.yml        # Local one-click stack (Postgres + API + web)
+├── Dockerfile                # API image
+├── start.sh                  # One-click local deploy entry point
 ├── tests/
 ├── pyproject.toml
 ├── uv.lock
@@ -265,35 +287,33 @@ brewmind/
 - Set `LITERATURE_RETRIEVAL_ENABLED=false` to fall back to LLM-only (no retrieval calls)
 - **GEM discovery** ([`gem_discovery.py`](mindbrew_v2/phases/gem_discovery.py)): after pathway search, additional retrieval queries identify GSMM names, biomass context, and SBML sources from literature when the static registry does not match
 
-### FBA_Analysis (validation)
+### FBA engine (validation)
 
-[FBA_Analysis](https://github.com/yanglu12/FBA_Analysis) is vendored under [`vendor/FBA_Analysis/`](vendor/FBA_Analysis/) and called via **direct Python import** (no separate conda env or subprocess).
+The FBA engine lives in [`mindbrew_v2/fba/`](mindbrew_v2/fba/) and is called via [`mindbrew_v2/tools/fba_client.py`](mindbrew_v2/tools/fba_client.py).
 
 | Component | Role |
 |-----------|------|
-| [`find_ids.py`](vendor/FBA_Analysis/find_ids.py) | `build_report(model_ref)` — SBML preflight + metabolite/reaction ID resolution |
-| [`fba_tool.py`](vendor/FBA_Analysis/fba_tool.py) | `score_pathway(...)` — FBA scoring, bottlenecks, calibration |
+| [`find_ids.py`](mindbrew_v2/fba/find_ids.py) | `build_report(model_ref)` — SBML preflight + metabolite/reaction ID resolution |
+| [`scoring.py`](mindbrew_v2/fba/scoring.py) | `score_pathway(...)` — FBA scoring, bottlenecks, calibration |
 | [`fba_client.py`](mindbrew_v2/tools/fba_client.py) | Brewmind wrapper; offline stubs when `BREWMIND_OFFLINE=true` |
 | [`fba_payloads.py`](mindbrew_v2/phases/fba_payloads.py) | Builds `ScorePathwayPayload` from find_ids + pathway enzymes |
 
-**Setup:**
+**Setup (manual dev):**
 
 ```bash
-git submodule update --init vendor/FBA_Analysis   # real code + iYLI647.xml
-uv sync --extra fba                               # cobra, python-libsbml, optlang
+uv sync --extra fba   # cobra, python-libsbml, optlang
 ```
 
-**MVP model:** **iYLI647** (*Y. lipolytica*) with literature-calibrated scenarios under `vendor/FBA_Analysis/scenarios/`.
+**MVP model:** **iYLI647** (*Y. lipolytica*) at `data/models/iYLI647.xml` with literature-calibrated scenarios under `data/scenarios/`.
 
-**Contract:** [`vendor/FBA_Analysis/FBA_TOOL_CONTRACT.md`](vendor/FBA_Analysis/FBA_TOOL_CONTRACT.md) — always run `build_report` before `score_pathway`; never invent metabolite IDs.
+**Contract:** [`mindbrew_v2/fba/CONTRACT.md`](mindbrew_v2/fba/CONTRACT.md) — always run `build_report` before `score_pathway`; never invent metabolite IDs.
 
-**Verify live ID resolution** (requires `--extra fba` and real vendor files):
+**Verify live ID resolution** (requires `--extra fba`):
 
 ```bash
 uv run python -c "
-import sys; sys.path.insert(0, 'vendor/FBA_Analysis')
-from find_ids import build_report
-r = build_report('vendor/FBA_Analysis/iYLI647.xml', [])
+from mindbrew_v2.fba.find_ids import build_report
+r = build_report('data/models/iYLI647.xml', [])
 print(r['recommended']['carbon_source_rxn'])
 "
 # Expected: EX_ocdcea_LPAREN_e_RPAREN_  (not the offline stub EX_ole_e)
@@ -309,6 +329,8 @@ print(r['recommended']['carbon_source_rxn'])
 
 ## Data and persistence
 
+### Application database
+
 **One Postgres database, two uses:**
 
 | Table / store | Purpose |
@@ -319,6 +341,24 @@ print(r['recommended']['carbon_source_rxn'])
 | LangGraph `PostgresSaver` | Graph checkpoints (`thread_id` = `session_id`) |
 
 Session lifecycle: `running` → `awaiting_user` (at each checkpoint) → `completed` or `failed`.
+
+### GEM models and scenarios
+
+| Store | Location | Lifecycle |
+|-------|----------|-----------|
+| Bundled SBML | `data/models/` | Shipped with repo; add new `.xml` files here |
+| FBA scenarios | `data/scenarios/` | Medium/calibration YAML; referenced from `gem_registry.yaml` |
+| Runtime cache | `data/gem_models/` | Created on first FBA run; persists in Docker via a named volume |
+
+Registry example (`mindbrew_v2/config/gem_registry.yaml`):
+
+```yaml
+model_ref: data/models/iYLI647.xml
+scenarios:
+  default: data/scenarios/wax_ester_oleate_n_limited.yaml
+  by_feedstock:
+    oleate: wax_ester_oleate_n_limited.yaml   # resolved under data/scenarios/
+```
 
 ---
 
@@ -348,23 +388,66 @@ At any checkpoint (or after a failed/interrupted step), use **Restart step** or 
 
 ## Getting started
 
-### Prerequisites
+### Quick Start (Docker — recommended)
+
+**Who this is for:** bioinformaticians and anyone who wants to run Brewmind without installing Python, Node, or PostgreSQL.
+
+**Prerequisites:**
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (includes Docker Compose)
+- A [Nebius Token Factory API key](https://tokenfactory.nebius.com) (prompted on first run)
+
+```bash
+git clone https://github.com/your-org/brewmind.git
+cd brewmind
+./start.sh
+```
+
+**What `./start.sh` does:**
+
+1. Checks Docker is installed and running
+2. Prompts for your Nebius API key (if `.env` is missing or still has the placeholder)
+3. Writes a Docker-ready `.env` (`DATABASE_URL`, CORS, etc. are filled in automatically)
+4. Builds and starts three containers: **Postgres**, **API**, **web**
+5. Runs database migrations inside the API container
+6. Waits for `/health`, then runs a smoke test
+
+Open [http://localhost:3000](http://localhost:3000) → **New session** → paste your R&D brief.
+
+| Command | Action |
+|---------|--------|
+| `./start.sh` | Build and start all services (detached) |
+| `./start.sh stop` | Stop all services |
+| `./start.sh logs` | Follow container logs |
+
+| Service | URL | Notes |
+|---------|-----|-------|
+| Web UI | http://localhost:3000 | Main entry point |
+| API | http://localhost:8000 | Direct access for debugging |
+| API health | http://localhost:8000/health | Used by startup checks |
+
+Session data persists in the `postgres_data` Docker volume across restarts. SBML cache persists in the `gem_cache` volume.
+
+---
+
+### Manual setup (for developers)
+
+#### Prerequisites
 
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip + venv
 - Node.js 18+ (for web UI)
-- PostgreSQL (local instance — no Docker required)
+- PostgreSQL (local instance)
 - Nebius API key (optional if using offline mode)
 - FBA optional extra (`uv sync --extra fba`) for live flux validation — not needed when `BREWMIND_OFFLINE=true`
 
-### Install and run
+#### Install and run
 
 ```bash
 cp .env.example .env
 # Edit DATABASE_URL, NEBIUS_API_KEY, etc.
 
 uv sync --extra dev --extra fba
-git submodule update --init vendor/FBA_Analysis
 
 createdb brewmind          # if the database doesn't exist
 uv run alembic upgrade head
@@ -407,9 +490,44 @@ pip install -e ".[dev,fba]"
 
 ---
 
-## Deployment
+## Local Docker architecture
 
-Production uses a **hybrid stack** (no monolithic Docker Compose required):
+When you run `./start.sh`, Docker Compose starts:
+
+```mermaid
+flowchart LR
+    user[Browser] -->|":3000"| web[web\nNext.js]
+    web -->|"/api proxy"| api[api\nFastAPI + LangGraph]
+    api --> postgres[(postgres)]
+    api --> nebius[Nebius LLM]
+    api --> fba[mindbrew_v2/fba]
+    api --> dataModels[data/models]
+    api --> dataScenarios[data/scenarios]
+    api --> dataCache[data/gem_models\nvolume]
+```
+
+| Service | Image | Role |
+|---------|-------|------|
+| `postgres` | `postgres:16-alpine` | Sessions, steps, stream events, LangGraph checkpoints |
+| `api` | Built from root `Dockerfile` | FastAPI, integrated FBA engine, Alembic migrations on start |
+| `web` | Built from `web/Dockerfile` | Next.js production build; proxies `/api` → `http://api:8000` |
+
+Key files:
+
+| File | Purpose |
+|------|---------|
+| [`docker-compose.yml`](docker-compose.yml) | Service definitions, volumes, healthchecks |
+| [`Dockerfile`](Dockerfile) | Python API image (includes `data/models/` and `data/scenarios/`) |
+| [`web/Dockerfile`](web/Dockerfile) | Next.js production image |
+| [`start.sh`](start.sh) | One-click entry point |
+| [`scripts/docker-entrypoint-api.sh`](scripts/docker-entrypoint-api.sh) | Wait for Postgres → `alembic upgrade head` → start uvicorn |
+| [`scripts/check-docker-prereqs.sh`](scripts/check-docker-prereqs.sh) | Validates Docker and bundled assets before start |
+
+---
+
+## Advanced: Cloud deployment
+
+For production hosting without Docker Compose on a laptop, Brewmind supports a **hybrid cloud stack** (separate from the local `./start.sh` path):
 
 | Component | Platform | Notes |
 |-----------|----------|-------|
@@ -435,11 +553,36 @@ Set on Render `brewmind-api`: `DATABASE_URL`, `NEBIUS_*`, `CORS_ORIGINS` (your V
 
 Smoke test after deploy: `./scripts/poc-smoke-test.sh`.
 
+### Auto-deploy on git push (disabled by default)
+
+**Push-to-deploy is off** so every commit to GitHub does not automatically rebuild production. Deploy manually when you are ready:
+
+```bash
+# API (Render) — after syncing render.yaml, trigger from dashboard or CLI
+./scripts/deploy-render.sh
+
+# Web (Vercel)
+API_URL=https://brewmind-api.onrender.com ./scripts/deploy-vercel.sh
+```
+
+**To re-enable automatic deploys later:**
+
+| Platform | Repo config | Alternative (dashboard) |
+|----------|-------------|-------------------------|
+| **Render (API)** | In [`render.yaml`](render.yaml), change `autoDeployTrigger: off` to `autoDeployTrigger: commit` (or `checksPass` to deploy only when CI passes), then sync the Blueprint | Render Dashboard → `brewmind-api` → **Settings** → **Auto-Deploy** → **On Commit** |
+| **Vercel (web)** | In [`vercel.json`](vercel.json) and [`web/vercel.json`](web/vercel.json), remove the `git.deploymentEnabled` block or set it to `true` | Vercel Dashboard → project → **Settings** → **Git** → enable automatic deployments |
+
+After changing `render.yaml`, apply the update via **Render Dashboard → Blueprint → Sync**. After changing Vercel config, merge the change and make one manual deploy so the new settings take effect.
+
+If Vercel still opens preview deployments on pull requests after disabling, ensure **Settings → Environments → Preview → Branch Tracking** is enabled so `vercel.json` rules are respected.
+
 ---
 
 ## Configuration
 
-Copy `.env.example` → `.env`. All variables below are **required** for the Python backend (`mindbrew_v2/settings.py` fails fast if any are missing):
+Copy `.env.example` → `.env` for manual development. When using **`./start.sh`**, the script creates or updates `.env` for you — you only need to provide `NEBIUS_API_KEY`; Docker-specific values (`DATABASE_URL`, `API_URL`, `CORS_ORIGINS`) are set automatically.
+
+All variables below are **required** for the Python backend (`mindbrew_v2/settings.py` fails fast if any are missing):
 
 | Variable | Description |
 |----------|-------------|
@@ -585,27 +728,37 @@ Live templates in `live_cases.yaml` (`live_wax_ester_template_v1`, `live_microbi
 
 ### Add a new GEM
 
-1. Add model + scenarios under `vendor/FBA_Analysis/`
-2. Register in `mindbrew_v2/config/gem_registry.yaml` with organism aliases, product/feedstock classes, scenario pointers
-3. Set `enabled: true`
+1. Add SBML under `data/models/` (e.g. `data/models/iML1515.xml`)
+2. Add scenario YAML(s) under `data/scenarios/`
+3. Register in [`mindbrew_v2/config/gem_registry.yaml`](mindbrew_v2/config/gem_registry.yaml):
+
+```yaml
+- id: my_gem
+  model_name: MyModel
+  model_ref: data/models/my_model.xml
+  scenarios:
+    default: data/scenarios/my_default_medium.yaml
+  enabled: true
+```
+
+4. Restart the API (or `./start.sh stop && ./start.sh` for Docker)
 
 ### Add a new feedstock scenario
 
-Add a scenario YAML under `vendor/FBA_Analysis/scenarios/` and reference it in the GEM's `scenarios.by_feedstock` in the registry.
+1. Add a YAML file under `data/scenarios/` (e.g. `data/scenarios/sunflower_oil.yaml`)
+2. Reference it in the GEM's `scenarios.default` or `scenarios.by_feedstock` in `gem_registry.yaml`:
+
+```yaml
+scenarios:
+  by_feedstock:
+    sunflower_oil: sunflower_oil.yaml   # resolved to data/scenarios/sunflower_oil.yaml
+```
+
+No Python or FBA engine changes are needed for new scenarios alone.
 
 ### Add eval cases
 
 See [Evaluation harness](#evaluation-harness) for the full workflow. Short version: draft in `sample_cases.yaml` → promote to `cases.yaml` or `live_cases.yaml` → add fixtures under `eval/fixtures/` → optional `annotations/{case_id}.md` → validate with `run_eval` or `run_sample_cases`.
-
-### Update FBA_Analysis vendor
-
-The upstream repo is tracked as a git submodule. To pull latest:
-
-```bash
-git submodule update --remote vendor/FBA_Analysis
-uv sync --extra fba
-uv run pytest tests/test_formalize.py -v   # integration test checks real ID resolution
-```
 
 ---
 
@@ -630,6 +783,7 @@ uv run pytest tests/test_formalize.py -v   # integration test checks real ID res
 | Session stuck on "running" | Check API logs; ensure Postgres is reachable and `DATABASE_URL` is correct. |
 | Stream log appears frozen during literature search | Long steps emit heartbeats every `PROGRESS_HEARTBEAT_INTERVAL_SEC` (default 15s). LLM and retrieval substeps log progress lines — wait for the stale-activity banner or check API logs. |
 | No LLM responses | Verify `NEBIUS_API_KEY`. For local dev without keys, set `BREWMIND_OFFLINE=true`. |
-| CP3 FBA plan shows stub IDs (`EX_ole_e`, `FAR_rxn`) | Run `git submodule update --init vendor/FBA_Analysis` and confirm `vendor/FBA_Analysis/iYLI647.xml` is ~2 MB SBML (not a text placeholder). Install FBA deps: `uv sync --extra fba`. Set `BREWMIND_OFFLINE=false`. |
+| CP3 FBA plan shows stub IDs (`EX_ole_e`, `FAR_rxn`) | Confirm `data/models/iYLI647.xml` exists (~2 MB SBML). Install FBA deps: `uv sync --extra fba`. Set `BREWMIND_OFFLINE=false`. |
 | `ImportError: cobra` or FBA falls back to offline stub | Run `uv sync --extra fba`. Restart the API after installing. |
-| `vendor/FBA_Analysis contains offline stubs` in logs | Submodule not initialized — run `git submodule update --init vendor/FBA_Analysis`. |
+| Docker `./start.sh` fails | Ensure Docker Desktop is running. Check `./start.sh logs`. Ports 3000/8000 must be free. |
+| `./start.sh` rejects API key | Get a key from [tokenfactory.nebius.com](https://tokenfactory.nebius.com) — placeholder values are blocked. |

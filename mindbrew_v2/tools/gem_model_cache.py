@@ -11,7 +11,7 @@ from urllib.request import urlopen
 
 from mindbrew_v2.settings import PROJECT_ROOT, get_settings
 
-FBA_VENDOR = PROJECT_ROOT / "vendor" / "FBA_Analysis"
+BUNDLED_MODELS_DIR = PROJECT_ROOT / "data" / "models"
 INDEX_FILE = "index.json"
 
 
@@ -44,9 +44,8 @@ def _resolve_bundled_path(model_ref: str | None) -> Path | None:
         return path
     candidates = [
         PROJECT_ROOT / model_ref,
-        FBA_VENDOR / model_ref.replace("vendor/FBA_Analysis/", ""),
-        FBA_VENDOR / Path(model_ref).name,
-        FBA_VENDOR / "models" / Path(model_ref).name,
+        BUNDLED_MODELS_DIR / model_ref.replace("data/models/", ""),
+        BUNDLED_MODELS_DIR / Path(model_ref).name,
     ]
     for candidate in candidates:
         if candidate.is_file():

@@ -1,7 +1,7 @@
 gems:
   - id: iyli647
     model_name: iYLI647
-    model_ref: vendor/FBA_Analysis/iYLI647.xml
+    model_ref: data/models/iYLI647.xml
     validation_paper_doi: "10.1186/s12918-018-0542-4"
     organism_aliases:
       - Yarrowia lipolytica
@@ -18,7 +18,7 @@ gems:
       - triglyceride_oil
     biomass_validation_scenario: iyli647_glucose_validation.yaml
     scenarios:
-      default: vendor/FBA_Analysis/scenarios/wax_ester_oleate_n_limited.yaml
+      default: data/scenarios/wax_ester_oleate_n_limited.yaml
       by_feedstock:
         oleate: wax_ester_oleate_n_limited.yaml
         plant_oil: wax_ester_oleate_n_limited.yaml
@@ -30,7 +30,7 @@ gems:
 
   - id: iml1515
     model_name: iML1515
-    model_ref: vendor/FBA_Analysis/models/iML1515.xml
+    model_ref: data/models/iML1515.xml
     validation_paper_doi: ""
     organism_aliases:
       - Escherichia coli
@@ -42,7 +42,7 @@ gems:
       - glucose
     biomass_validation_scenario: exploratory_no_literature.yaml
     scenarios:
-      default: vendor/FBA_Analysis/scenarios/exploratory_no_literature.yaml
+      default: data/scenarios/exploratory_no_literature.yaml
     priority: 5
     enabled: false
 

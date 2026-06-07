@@ -4,7 +4,7 @@ from mindbrew_v2.phases.checkpoints import artifact_for_display
 
 def test_display_path_returns_basename():
     assert display_path("/Users/dev/brewmind/data/gem_models/iyli647.xml") == "iyli647.xml"
-    assert display_path("vendor/FBA_Analysis/scenarios/sunflower_oil.yaml") == "sunflower_oil.yaml"
+    assert display_path("data/scenarios/sunflower_oil.yaml") == "sunflower_oil.yaml"
 
 
 def test_sanitize_fba_plan_artifact_shortens_paths():
@@ -13,14 +13,14 @@ def test_sanitize_fba_plan_artifact_shortens_paths():
             "gem_id": "iyli647",
             "model_ref": "/Users/dev/brewmind/data/gem_models/iyli647.xml",
             "model_cache_path": "/Users/dev/brewmind/data/gem_models/iyli647.xml",
-            "scenario": "/Users/dev/brewmind/vendor/FBA_Analysis/scenarios/sunflower_oil.yaml",
-            "biomass_validation_scenario": "/Users/dev/brewmind/vendor/FBA_Analysis/scenarios/iyli647_glucose_validation.yaml",
+            "scenario": "/Users/dev/brewmind/data/scenarios/sunflower_oil.yaml",
+            "biomass_validation_scenario": "/Users/dev/brewmind/data/scenarios/iyli647_glucose_validation.yaml",
         },
         "score_payloads": [
             {
                 "pathway_id": "P1",
                 "model_ref": "/Users/dev/brewmind/data/gem_models/iyli647.xml",
-                "scenario": "/Users/dev/brewmind/vendor/FBA_Analysis/scenarios/sunflower_oil.yaml",
+                "scenario": "/Users/dev/brewmind/data/scenarios/sunflower_oil.yaml",
             }
         ],
     }
