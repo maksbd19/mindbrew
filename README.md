@@ -147,7 +147,7 @@ Use `./start.sh` for a one-click local stack (Postgres + API + web). Manual Pyth
 
 ### 8. Same-origin API proxy
 
-The Next.js app proxies `/api/*` → FastAPI to avoid CORS issues in local dev. Server-side rendering talks to the backend directly via `API_URL`.
+The Next.js app proxies `/api/*` → FastAPI to avoid CORS issues in local dev. Server-side rendering talks to the backend directly via `API_URL`. Live SSE streams (`/api/sessions/{id}/stream`) use a dedicated Next.js route handler that pipes the response through without buffering — standard rewrite proxying does not support long-lived event streams.
 
 ---
 
@@ -250,6 +250,7 @@ brewmind/
 │       └── migrations/       # Alembic
 ├── web/                      # Next.js App Router
 │   ├── app/
+│   │   ├── api/sessions/[sessionId]/stream/  # SSE streaming proxy
 │   │   ├── page.tsx          # Session list
 │   │   ├── sessions/new/     # New ticket
 │   │   └── sessions/[id]/    # Step wizard
@@ -509,16 +510,17 @@ flowchart LR
 | Service | Image | Role |
 |---------|-------|------|
 | `postgres` | `postgres:16-alpine` | Sessions, steps, stream events, LangGraph checkpoints |
-| `api` | Built from root `Dockerfile` | FastAPI, integrated FBA engine, Alembic migrations on start |
-| `web` | Built from `web/Dockerfile` | Next.js production build; proxies `/api` → `http://api:8000` |
+| `api` | Built from root `Dockerfile` | FastAPI, FBA engine (COBRApy/libSBML), report export, Alembic migrations on start |
+| `web` | Built from `web/Dockerfile` | Next.js production build; proxies `/api` → `http://api:8000` (SSE via dedicated route) |
 
 Key files:
 
 | File | Purpose |
 |------|---------|
 | [`docker-compose.yml`](docker-compose.yml) | Service definitions, volumes, healthchecks |
-| [`Dockerfile`](Dockerfile) | Python API image (includes `data/models/` and `data/scenarios/`) |
+| [`Dockerfile`](Dockerfile) | Python API image (FBA + report-export system libs; includes `data/models/` and `data/scenarios/`) |
 | [`web/Dockerfile`](web/Dockerfile) | Next.js production image |
+| [`web/app/api/sessions/[sessionId]/stream/route.ts`](web/app/api/sessions/[sessionId]/stream/route.ts) | Streaming SSE proxy for live session events |
 | [`start.sh`](start.sh) | One-click entry point |
 | [`scripts/docker-entrypoint-api.sh`](scripts/docker-entrypoint-api.sh) | Wait for Postgres → `alembic upgrade head` → start uvicorn |
 | [`scripts/check-docker-prereqs.sh`](scripts/check-docker-prereqs.sh) | Validates Docker and bundled assets before start |
@@ -786,4 +788,6 @@ See [Evaluation harness](#evaluation-harness) for the full workflow. Short versi
 | CP3 FBA plan shows stub IDs (`EX_ole_e`, `FAR_rxn`) | Confirm `data/models/iYLI647.xml` exists (~2 MB SBML). Install FBA deps: `uv sync --extra fba`. Set `BREWMIND_OFFLINE=false`. |
 | `ImportError: cobra` or FBA falls back to offline stub | Run `uv sync --extra fba`. Restart the API after installing. |
 | Docker `./start.sh` fails | Ensure Docker Desktop is running. Check `./start.sh logs`. Ports 3000/8000 must be free. |
+| Docker `dependency api failed to start` | API container crashed on boot — usually missing deps or import errors. Run `docker compose logs api`. After pulling updates, rebuild: `docker compose build --no-cache api`. |
+| `Failed to proxy .../stream` / `socket hang up` in web logs | Rebuild the web container so the SSE streaming route is included: `./start.sh stop && docker compose build web && ./start.sh`. Direct API streams at `http://localhost:8000/sessions/{id}/stream` can help isolate proxy vs API issues. |
 | `./start.sh` rejects API key | Get a key from [tokenfactory.nebius.com](https://tokenfactory.nebius.com) — placeholder values are blocked. |
