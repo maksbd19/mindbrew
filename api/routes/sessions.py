@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
-from api.db.database import get_db
+from api.db.database import get_db, get_session_factory
 from api.services import graph_runner
 from api.services.graph_runner import _enrich_event
 from api.services.session_store import (
@@ -418,26 +418,38 @@ def list_events(session_id: str, after_seq: int = 0, db: Session = Depends(get_d
 
 
 @router.get("/{session_id}/stream")
-async def stream(session_id: str, after_seq: int = 0, db: Session = Depends(get_db)):
-    row = get_session(db, session_id)
-    if not row:
-        raise HTTPException(404, "Session not found")
+async def stream(session_id: str, after_seq: int = 0):
+    SessionLocal = get_session_factory()
+    probe = SessionLocal()
+    try:
+        if not get_session(probe, session_id):
+            raise HTTPException(404, "Session not found")
+    finally:
+        probe.close()
 
     async def event_generator():
         seen = after_seq
         while True:
-            events = get_stream_events(db, session_id, after_seq=seen)
-            for ev in events:
-                seen = ev.seq
-                yield {"event": "message", "data": json.dumps(_event_payload(ev))}
-            db.refresh(row)
+            db = SessionLocal()
+            try:
+                row = get_session(db, session_id)
+                if not row:
+                    break
+                events = get_stream_events(db, session_id, after_seq=seen)
+                status = row.status
+                for ev in events:
+                    seen = ev.seq
+                    yield {"event": "message", "data": json.dumps(_event_payload(ev))}
+            finally:
+                db.close()
+
             agent_active = session_id in _running or graph_runner.is_session_active(session_id)
             if (
-                row.status in ("awaiting_user", "completed", "failed", "interrupted")
+                status in ("awaiting_user", "completed", "failed", "interrupted")
                 and not events
                 and not agent_active
             ):
-                if row.status == "completed":
+                if status == "completed":
                     yield {"event": "message", "data": json.dumps({"type": "done"})}
                 break
             await asyncio.sleep(0.25 if agent_active else 0.5)

@@ -6,12 +6,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends libglpk40 \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        gcc \
+        libcairo2 \
+        libcairo2-dev \
+        libexpat1 \
+        libgdk-pixbuf-2.0-0 \
+        libglpk40 \
+        libpango-1.0-0 \
+        pkg-config \
+        shared-mime-info \
+    && pip install --no-cache-dir -r requirements.txt \
+    && apt-get purge -y gcc libcairo2-dev pkg-config \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY api/ api/
 COPY mindbrew_v2/ mindbrew_v2/

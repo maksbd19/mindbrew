@@ -15,29 +15,50 @@ anyio==4.13.0
     #   watchfiles
 appdirs==1.4.4
     # via cobra
+arabic-reshaper==3.0.1
+    # via xhtml2pdf
+asn1crypto==1.5.1
+    # via
+    #   oscrypto
+    #   pyhanko
+    #   pyhanko-certvalidator
 certifi==2026.5.20
     # via
     #   httpcore
     #   httpx
     #   requests
+cffi==2.0.0
+    # via cryptography
 charset-normalizer==3.4.7
-    # via requests
+    # via
+    #   reportlab
+    #   requests
 click==8.4.1
     # via uvicorn
 cobra==0.31.1
     # via brewmind (pyproject.toml)
+cryptography==48.0.0
+    # via
+    #   pyhanko
+    #   pyhanko-certvalidator
+cssselect2==0.9.0
+    # via svglib
 depinfo==2.2.0
     # via cobra
 distro==1.9.0
     # via openai
 fastapi==0.136.3
     # via brewmind (pyproject.toml)
+freetype-py==2.5.1
+    # via rlpycairo
 future==1.0.0
     # via cobra
 h11==0.16.0
     # via
     #   httpcore
     #   uvicorn
+html5lib==1.1
+    # via xhtml2pdf
 httpcore==1.0.9
     # via httpx
 httptools==0.8.0
@@ -89,8 +110,15 @@ langgraph-sdk==0.4.2
     # via langgraph
 langsmith==0.8.9
     # via langchain-core
+lxml==6.1.1
+    # via
+    #   pyhanko
+    #   python-docx
+    #   svglib
 mako==1.3.12
     # via alembic
+markdown==3.10.2
+    # via brewmind (pyproject.toml)
 markdown-it-py==4.2.0
     # via rich
 markupsafe==3.0.3
@@ -116,12 +144,18 @@ orjson==3.11.9
     #   langsmith
 ormsgpack==1.12.2
     # via langgraph-checkpoint
+oscrypto==1.3.0
+    # via pyhanko-certvalidator
 packaging==26.2
     # via
     #   langchain-core
     #   langsmith
 pandas==2.3.3
     # via cobra
+pillow==12.2.0
+    # via
+    #   reportlab
+    #   xhtml2pdf
 psycopg==3.3.4
     # via
     #   brewmind (pyproject.toml)
@@ -130,6 +164,10 @@ psycopg-binary==3.3.4
     # via psycopg
 psycopg-pool==3.3.1
     # via langgraph-checkpoint-postgres
+pycairo==1.29.0
+    # via rlpycairo
+pycparser==3.0
+    # via cffi
 pydantic==2.13.4
     # via
     #   brewmind (pyproject.toml)
@@ -146,8 +184,20 @@ pydantic-settings==2.14.1
     # via brewmind (pyproject.toml)
 pygments==2.20.0
     # via rich
+pyhanko==0.35.1
+    # via xhtml2pdf
+pyhanko-certvalidator==0.31.1
+    # via
+    #   pyhanko
+    #   xhtml2pdf
+pypdf==6.13.0
+    # via xhtml2pdf
+python-bidi==0.6.10
+    # via xhtml2pdf
 python-dateutil==2.9.0.post0
     # via pandas
+python-docx==1.2.0
+    # via brewmind (pyproject.toml)
 python-dotenv==1.2.2
     # via
     #   brewmind (pyproject.toml)
@@ -163,22 +213,33 @@ pyyaml==6.0.3
     # via
     #   brewmind (pyproject.toml)
     #   langchain-core
+    #   pyhanko
     #   uvicorn
 regex==2026.5.9
     # via tiktoken
+reportlab==4.5.1
+    # via
+    #   svglib
+    #   xhtml2pdf
 requests==2.34.2
     # via
     #   langsmith
+    #   pyhanko
+    #   pyhanko-certvalidator
     #   requests-toolbelt
     #   tiktoken
 requests-toolbelt==1.0.0
     # via langsmith
 rich==15.0.0
     # via cobra
+rlpycairo==0.4.0
+    # via svglib
 ruamel-yaml==0.19.1
     # via cobra
 six==1.17.0
-    # via python-dateutil
+    # via
+    #   html5lib
+    #   python-dateutil
 sniffio==1.3.1
     # via openai
 sqlalchemy==2.0.50
@@ -191,6 +252,8 @@ starlette==1.2.1
     # via
     #   fastapi
     #   sse-starlette
+svglib==1.6.0
+    # via xhtml2pdf
 swiglpk==5.0.13
     # via
     #   cobra
@@ -201,6 +264,10 @@ tenacity==9.1.4
     # via langchain-core
 tiktoken==0.13.0
     # via langchain-openai
+tinycss2==1.5.1
+    # via
+    #   cssselect2
+    #   svglib
 tqdm==4.68.1
     # via openai
 typing-extensions==4.15.0
@@ -213,6 +280,7 @@ typing-extensions==4.15.0
     #   psycopg-pool
     #   pydantic
     #   pydantic-core
+    #   python-docx
     #   sqlalchemy
     #   typing-inspection
 typing-inspection==0.4.2
@@ -222,6 +290,10 @@ typing-inspection==0.4.2
     #   pydantic-settings
 tzdata==2026.2
     # via pandas
+tzlocal==5.3.1
+    # via pyhanko
+uritools==6.1.2
+    # via pyhanko-certvalidator
 urllib3==2.7.0
     # via requests
 uuid-utils==0.16.0
@@ -234,11 +306,18 @@ uvloop==0.22.1
     # via uvicorn
 watchfiles==1.2.0
     # via uvicorn
+webencodings==0.5.1
+    # via
+    #   cssselect2
+    #   html5lib
+    #   tinycss2
 websockets==15.0.1
     # via
     #   langgraph-sdk
     #   langsmith
     #   uvicorn
+xhtml2pdf==0.2.17
+    # via brewmind (pyproject.toml)
 xxhash==3.7.0
     # via
     #   langgraph
